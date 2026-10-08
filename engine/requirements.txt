@@ -1,0 +1,24 @@
+# OwnRAG local engine — runtime dependencies.
+#
+# All of these are also available as prebuilt wheels for Windows/macOS/Linux; nothing here needs
+# a compiler, a container or a GPU.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+pymupdf>=1.24          # real PDF text extraction, page by page
+python-docx>=1.1       # DOCX paragraphs and tables
+openpyxl>=3.1          # XLSX sheets
+numpy>=1.26            # vector search
+requests>=2.31         # bring-your-own embedding / chat endpoints
+
+# Pillow is imported by ownrag_engine/ocr.py at module level, so it is required on every platform:
+# the OCR worker loads the page image before handing it to an engine.
+Pillow>=10.0
+# OCR of scanned pages is implemented against the OCR engine built into Windows
+# (Windows.Media.Ocr). It is declared for Windows only, and it is reached only when a page has no
+# native text — a PDF with a text layer never needs it.
+winsdk>=1.0.0b10; sys_platform == "win32"
+
+# Not installed by default. ui_test.py drives a real browser through Playwright, so it is a test
+# dependency rather than a runtime one: `pip install playwright && playwright install chromium`.
+# playwright>=1.40

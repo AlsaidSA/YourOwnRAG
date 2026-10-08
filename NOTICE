@@ -1,0 +1,75 @@
+OwnRAG
+Copyright 2026 OwnRAG contributors
+
+This product ("OwnRAG") is a derivative work of RAGFlow.
+
+================================================================================
+1. ATTRIBUTION
+================================================================================
+
+RAGFlow
+Copyright 2026 The InfiniFlow Authors. All Rights Reserved.
+https://github.com/infiniflow/ragflow
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use these files except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+The full text of the Apache License, Version 2.0 is in the LICENSE file at the
+root of this repository. That file is the unmodified upstream Apache-2.0 text
+and is not changed by OwnRAG.
+
+OwnRAG was forked from the RAGFlow repository at upstream commit:
+
+    2400ca8eb51432b1d304266d0de9ca232d9b53fa
+    ("feat(agent,ingestion): carry the grep/bm25 contracts and index declared
+    titles (#20542)")
+
+================================================================================
+2. NOTE ON THE UPSTREAM NOTICE FILE
+================================================================================
+
+The upstream RAGFlow distribution does not ship a NOTICE file (verified against
+the tree at the commit above). Section 4(d) of the Apache License, Version 2.0
+requires a derivative work to reproduce the attribution notices contained in an
+upstream NOTICE file; because none exists upstream, no notice text is required
+to be carried forward. This NOTICE file is provided voluntarily as a clear,
+human-readable record of attribution, and it does not modify the License.
+
+================================================================================
+3. SCOPE OF MODIFICATION
+================================================================================
+
+- The upstream React console (formerly in web/) is preserved, byte-for-byte and
+  unmodified, under legacy/ragflow-web/ as a frozen reference snapshot. Its
+  upstream copyright and Apache-2.0 per-file headers are retained intact.
+
+- The new OwnRAG console in web/ is a separate work that consumes the preserved
+  backend's existing HTTP contract (/api/v1/* and /v1/*). New OwnRAG source
+  files state that they are "Derived from RAGFlow" and retain the Apache-2.0
+  terms.
+
+- The backend and tooling (internal/, cmd/, rag/, docker/, sdk/, conf/, and the
+  root build files) are NOT modified; capability preservation is the point of
+  the fork.
+
+See DERIVED-WORK.md for the full, file-level statement of what was changed,
+moved, added, and preserved.
+
+================================================================================
+4. TRADEMARKS
+================================================================================
+
+"RAGFlow" and "InfiniFlow" are the names and trademarks of their respective
+owners. They appear in this repository only to describe the origin of this
+derivative work and to preserve upstream attribution, as permitted by Section 6
+of the License. OwnRAG is an independent project: it is not affiliated with,
+endorsed by, or sponsored by InfiniFlow or the RAGFlow project.

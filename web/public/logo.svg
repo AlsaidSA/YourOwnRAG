@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32" fill="none">
+  <!--
+    OwnRAG mark: an owned core — a container, four wired corners, a node at the centre.
+    Copyright 2026 OwnRAG contributors — Apache-2.0.
+  -->
+  <rect x="2.4" y="2.4" width="19.2" height="19.2" rx="6" stroke="#2FD3AE" stroke-width="1.6"/>
+  <rect x="7.4" y="7.4" width="9.2" height="9.2" rx="2.6" fill="#2FD3AE" fill-opacity="0.16"/>
+  <circle cx="12" cy="12" r="2.3" fill="#2FD3AE"/>
+  <path d="M4.6 4.6l2.2 2.2M19.4 19.4l-2.2-2.2M4.6 19.4l2.2-2.2M19.4 4.6l-2.2 2.2"
+        stroke="#2FD3AE" stroke-opacity="0.4" stroke-width="1.3" stroke-linecap="round"/>
+</svg>

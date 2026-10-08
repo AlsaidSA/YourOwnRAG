@@ -1,0 +1,247 @@
+/*
+ * Copyright 2026 OwnRAG contributors — Apache-2.0.
+ * Tailwind v4 theme layer: maps the design tokens into utilities, then sets base typography,
+ * focus and scroll behaviour for the console.
+ */
+@import 'tailwindcss';
+@import './tokens.css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  /* Fonts — Geist for interface, Geist Mono for identifiers, scores and code. */
+  --font-sans:
+    'Geist', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:
+    'Geist Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Surfaces */
+  --color-canvas: var(--or-canvas);
+  --color-surface-1: var(--or-surface-1);
+  --color-surface-2: var(--or-surface-2);
+  --color-surface-3: var(--or-surface-3);
+  --color-inset: var(--or-surface-inset);
+
+  /* Lines */
+  --color-line: var(--or-line);
+  --color-line-strong: var(--or-line-strong);
+  --color-line-accent: var(--or-line-accent);
+
+  /* Ink */
+  --color-ink: var(--or-ink);
+  --color-ink-2: var(--or-ink-2);
+  --color-ink-3: var(--or-ink-3);
+
+  /* Accent + data */
+  --color-accent: var(--or-accent);
+  --color-accent-hover: var(--or-accent-hover);
+  --color-accent-ink: var(--or-accent-ink);
+  --color-accent-soft: var(--or-accent-soft);
+  --color-accent-soft-strong: var(--or-accent-soft-strong);
+  --color-violet: var(--or-violet);
+  --color-violet-soft: var(--or-violet-soft);
+
+  /* Semantic */
+  --color-ok: var(--or-ok);
+  --color-ok-soft: var(--or-ok-soft);
+  --color-warn: var(--or-warn);
+  --color-warn-soft: var(--or-warn-soft);
+  --color-danger: var(--or-danger);
+  --color-danger-soft: var(--or-danger-soft);
+  --color-info: var(--or-info);
+  --color-info-soft: var(--or-info-soft);
+
+  /* Elevation */
+  --shadow-e1: var(--or-shadow-sm);
+  --shadow-e2: var(--or-shadow-md);
+  --shadow-e3: var(--or-shadow-lg);
+
+  /* Radii */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  /* Motion */
+  --ease-out-quint: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Type scale tuned for dense, glanceable product UI rather than marketing pages. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.15rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.3rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.45rem;
+  --text-md: 1rem;
+  --text-md--line-height: 1.6rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.6rem;
+  --text-xl: 1.375rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.75rem;
+  --text-2xl--line-height: 2.1rem;
+  --text-3xl: 2.25rem;
+  --text-3xl--line-height: 2.6rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--or-line);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--or-canvas);
+    color: var(--or-ink);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.45;
+    font-feature-settings: 'cv11', 'ss01';
+    font-variant-numeric: tabular-nums;
+    text-wrap: pretty;
+    overscroll-behavior: none;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--or-accent);
+    outline-offset: 1px;
+    border-radius: 3px;
+  }
+
+  ::selection {
+    background: var(--or-accent-soft-strong);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--or-ink-3);
+  }
+
+  /* Slim, unobtrusive scrollbars for panes that scroll inside the shell. */
+  .or-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--or-line-strong) transparent;
+  }
+  .or-scroll::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  .or-scroll::-webkit-scrollbar-thumb {
+    background: var(--or-line-strong);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  .or-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--or-ink-3);
+    background-clip: content-box;
+  }
+  .or-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer utilities {
+  /* Single-hairline grid background used behind the auth + empty surfaces. */
+  .or-grid-bg {
+    background-image:
+      linear-gradient(to right, var(--or-line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--or-line) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+
+  .or-truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .or-fade-in {
+    animation: or-fade-in var(--dur-3) var(--ease-out-quint) both;
+  }
+
+  .or-rise-in {
+    animation: or-rise-in var(--dur-3) var(--ease-out-quint) both;
+  }
+
+  .or-shimmer {
+    background: linear-gradient(
+      90deg,
+      var(--or-surface-2) 0%,
+      var(--or-surface-3) 50%,
+      var(--or-surface-2) 100%
+    );
+    background-size: 200% 100%;
+    animation: or-shimmer 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes or-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes or-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes or-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

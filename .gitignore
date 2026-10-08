@@ -1,0 +1,130 @@
+# ---------------------------------------------------------------------------
+# OwnRAG
+# ---------------------------------------------------------------------------
+
+# ---- secrets and local environment ----------------------------------------
+.env
+.env.local
+.env.*.local
+!.env.example
+*.key
+*.p12
+*.pfx
+
+# ---- OwnRAG engine (engine/) ---------------------------------------------
+# SQLite database, uploaded documents, and every local runtime copy of them.
+engine/data/
+engine/backups/
+engine/.venv/
+engine/.pytest_cache/
+engine/__pycache__/
+engine/screenshots/
+engine/**/*.pyc
+
+# ---- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.hypothesis
+uv-x86_64*.tar.gz
+uv-aarch64*.tar.gz
+uv-aarch64-unknown-linux-gnu.tar.gz
+
+# ---- Node / frontend (web/) ----------------------------------------------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+coverage/
+*.tsbuildinfo
+.nyc_output/
+jspm_packages/
+web_modules/
+.npm/
+.eslintcache
+
+# ---- logs, dumps and local runs ------------------------------------------
+logs
+*.log
+*.err
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.pid
+*.seed
+*.pid.lock
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# ---- Go build output and downloaded native artifacts ----------------------
+# bin/ holds build output; the placeholder keeps the directory in the tree.
+bin/*
+!bin/.gitkeep
+/ragflow_server
+build/
+internal/binding/cpp/build/
+internal/binding/cpp/cmake-build-release/
+internal/binding/cpp/cmake-build-debug/
+target/
+*.tar.gz
+*.zip
+ragflow_deps/*.zip
+*.trie
+libssl*.deb
+tika-server*.jar*
+cl100k_base.tiktoken
+huggingface.co/
+nltk_data/
+stagehand-server*
+office_oxide*.tar.gz
+pdf_oxide*.tar.gz
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# DeepDoc model weights, fetched by ragflow_deps/download_deps.py — never bundled.
+internal/rag/res/deepdoc/
+rag/res/
+internal/deepdoc/native/testdata
+
+# Fetched-on-demand test data (symlinked in by scripts/fetch_deepdoc_testdata.sh).
+internal/deepdoc/parser/pdf/testdata/
+internal/deepdoc/parser/docx/testdata/
+internal/deepdoc/parser/pdf/tools-py/
+internal/deepdoc/parser/docx/tool/
+
+# ---- local datastores from the Docker compose stack ----------------------
+docker/data
+docker/ragflow-logs/
+docker/oceanbase/conf
+docker/oceanbase/data
+docker/seekdb
+/flask_session
+pids
+
+# ---- IDE / editor -------------------------------------------------------
+.idea/
+.vscode/
+.run/
+.lh/
+
+# ---- local tooling state (per developer; never committed) ---------------
+# Assistant and editor scratch directories can contain local prompts and
+# credentials, so they are excluded rather than left to a reviewer's eyes.
+.claude/
+.cursor/
+.opencode/
+.continue/
+.roo/
+.trae/
+.codebuddy/
+.omc/
+.marscode/
+.omx/
+.aider*
+
+# ---- OS ----------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini

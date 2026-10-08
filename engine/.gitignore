@@ -1,0 +1,20 @@
+# Local engine runtime state — the SQLite database, every uploaded document,
+# and the pre-migration snapshot the backup tool writes (ownrag.db + files/).
+data/
+backups/
+
+# Virtualenv and bytecode.
+.venv/
+__pycache__/
+*.pyc
+
+# Anything a run leaves behind.
+*.log
+*.err
+
+# Screenshots captured by ui_test.py — regenerate by running it.
+screenshots/
+
+# Scratch: benchmark sandboxes, captured logs and one-off probe scripts.
+ocr-test/
+*.json.tmp

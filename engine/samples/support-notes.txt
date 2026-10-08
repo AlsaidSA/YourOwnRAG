@@ -1,0 +1,8 @@
+OwnRAG support notes
+
+Ticket SLA: first response within 4 business hours for production workspaces, 1 business day for
+evaluation workspaces. A production incident that blocks ingestion entirely is treated as severity
+one and escalates to the on-call engineer within 15 minutes.
+
+Billing is metered per thousand tokens of retrieved context, not per uploaded page, so re-parsing
+a document does not double-charge a workspace.
