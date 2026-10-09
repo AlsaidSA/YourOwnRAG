@@ -10,7 +10,7 @@ Three sources pull for real with no third-party app registration: `web` needs on
 set in `engine/.env`). The rest report precisely what they are missing — none of them reports a sync
 it did not perform.
 
-Derived from RAGFlow (https://github.com/infiniflow/ragflow), Apache-2.0.
+Modified from an upstream Apache-2.0 project; see NOTICE for origin and attribution.
 """
 
 from __future__ import annotations

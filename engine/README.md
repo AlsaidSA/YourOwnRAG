@@ -2,7 +2,7 @@
 
 A second, self-contained implementation of the OwnRAG HTTP contract — the same routes
 `web/src/api/endpoints.ts` calls and the same `{code, data, message, total}` envelope the preserved
-RAGFlow Go backend serves. It exists so OwnRAG is fully functional on one machine with **no
+the upstream Go backend serves. It exists so OwnRAG is fully functional on one machine with **no
 container runtime**: no Docker, no Elasticsearch, no MySQL, no MinIO, no NATS.
 
 Upstream's Go backend is untouched and remains the production engine. This one is the local
@@ -175,5 +175,5 @@ engine/
 
 ---
 
-Derived from RAGFlow (https://github.com/infiniflow/ragflow), Copyright 2026 The InfiniFlow
+Modified for OwnRAG from the upstream Apache-2.0 project; see NOTICE. Copyright 2026 The InfiniFlow
 Authors, Apache-2.0. The contract this engine implements is theirs; the implementation is new.

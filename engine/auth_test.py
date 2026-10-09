@@ -78,7 +78,11 @@ def main() -> int:
     row = db().execute("SELECT * FROM user WHERE email = ?", (email,)).fetchone()
     check("password column holds a scrypt hash", str(row["password"]).startswith("scrypt$"), str(row["password"])[:24])
     check("the plaintext password is nowhere in the row", "a-proper-passphrase-42" not in (row["password"] or ""))
-    check("the account is not an administrator", int(row["is_admin"]) == 0)
+    # A signup creates a workspace, and the account that creates a workspace owns it: it administers its
+    # own models, memory stores and API keys, and nobody else's.
+    check("the account owns the workspace it created",
+          int(row["is_admin"]) == 1 and str(row["role"]) == "owner",
+          str(row["role"]) + "/" + str(row["is_admin"]))
 
     print("4. the session identifies its own user")
     me = get("/users/me", token)["data"]
@@ -121,6 +125,19 @@ def main() -> int:
 
     print()
     print("=" * 66)
+    print("\n[cleanup] sweeping the test accounts this suite created")
+    # The console shows the workspace roster, so a suite that leaves accounts behind fills a real
+    # screen with fixtures. Every address this suite uses ends in @example.test.
+    _owner = requests.post(f"{BASE}/auth/login", json={"email": "owner@ownrag.local"}, timeout=60).json()
+    _token = (_owner.get("data") or {}).get("access_token") or ""
+    _headers = {"Authorization": f"Bearer {_token}"}
+    _rows = requests.get(f"{BASE}/tenants/tenant_ownrag/users", headers=_headers, timeout=60).json().get("data") or []
+    _swept = 0
+    for _member in _rows:
+        if str(_member.get("email") or "").endswith("@example.test"):
+            requests.delete(f"{BASE}/tenants/tenant_ownrag/users/{_member.get('user_id')}", headers=_headers, timeout=60)
+            _swept += 1
+    print(f"  swept {_swept} test account(s)")
     print(f"  {PASS} passed, {FAIL} failed")
     print("=" * 66)
     return 1 if FAIL else 0

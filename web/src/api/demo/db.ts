@@ -3,7 +3,7 @@
  *
  * Deterministic demo corpus.
  *
- * OwnRAG is a client of the preserved RAGFlow backend. When that backend is not reachable
+ * OwnRAG is a client of the preserved upstream backend. When that backend is not reachable
  * (no docker stack, no cluster), the console falls back to this in-memory corpus so every
  * surface stays explorable. The UI labels this state explicitly — demo data is never
  * presented as live data. Nothing here is randomised at runtime: the same seed produces the

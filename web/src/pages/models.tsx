@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Server,
   ShieldCheck,
+  Trash2,
   TriangleAlert,
 } from 'lucide-react';
 import * as React from 'react';
@@ -25,10 +26,12 @@ import {
   useAddInstance,
   useAddProvider,
   useAvailableModels,
+  useDeleteProvider,
   useDiscoverModels,
   useProviderConnectionTest,
   useProviderCatalog,
   useProviders,
+  SystemKeys,
 } from '@/api/hooks';
 import type { ModelKind, ModelProvider, ProviderCatalogEntry, ProviderInstance, ProviderModel } from '@/api/types';
 import { PageBody, PageHeader } from '@/components/app/page-header';
@@ -38,6 +41,7 @@ import { Field, Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/controls';
 import { TBody, TD, TH, THead, TR, Table } from '@/components/ui/data-table';
 import {
+  ConfirmDialog,
   Dialog,
   DialogBody,
   DialogContent,
@@ -76,6 +80,9 @@ function useSetModelStatus() {
       }),
     onSuccess: (_data, variables) => {
       client.invalidateQueries({ queryKey: ModelKeys.providers() });
+      // The chat tab's model menu lists the same models; switching one on here must offer it there at once,
+      // not after the five-minute stale time.
+      client.invalidateQueries({ queryKey: SystemKeys.userModels() });
       toast({
         title: variables.status === 'active' ? 'Model enabled' : 'Model disabled',
         variant: 'success',
@@ -214,6 +221,10 @@ export default function ModelsPage() {
             <div className="min-w-0">
               {active ? (
                 <ProviderInspector
+                  // Keyed by provider: the card's state belongs to one provider. Un-keyed, React reused the
+                  // instance when the list changed underneath it and the removed provider's open confirm
+                  // dialog reappeared over the next one's card.
+                  key={active.name}
                   provider={active}
                   onAddInstance={() => setConnectTarget({ ...active, status: active.status })}
                 />
@@ -294,6 +305,11 @@ function ProviderInspector({
 }) {
   const test = useProviderConnectionTest();
   const setStatus = useSetModelStatus();
+  const remove = useDeleteProvider();
+  // A boolean, not the provider: the handler reads the provider from props, so nothing the dialog does on
+  // open or close can blank the value the mutation needs.
+  const [confirming, setConfirming] = React.useState(false);
+  const models = provider.instances.reduce((sum, instance) => sum + instance.models.length, 0);
   const testing = test.isPending && test.variables === provider.name;
 
   return (
@@ -323,8 +339,32 @@ function ProviderInspector({
                 <Plus />
                 Add instance
               </Button>
+              {provider.removable !== false && (
+                <Button variant="danger-ghost" size="sm" onClick={() => setConfirming(true)}>
+                  <Trash2 />
+                  Remove
+                </Button>
+              )}
             </>
           }
+        />
+        <ConfirmDialog
+          open={confirming}
+          onOpenChange={setConfirming}
+          destructive
+          title={`Remove ${provider.label}?`}
+          description={
+            <>
+              This deletes the provider and the {models} model{models === 1 ? '' : 's'} it serves, along with
+              the stored key. Any assistant pinned to one of them moves to the workspace's own model.
+            </>
+          }
+          confirmLabel="Remove provider"
+          loading={remove.isPending}
+          // The dialog stays open until this succeeds: a failure is the one case where the user needs it
+          // still there to retry. `ConfirmDialog`'s confirm button prevents default, so nothing else closes
+          // it — without this the removal left the dialog open over the next provider's card.
+          onConfirm={() => remove.mutate(provider.name, { onSuccess: () => setConfirming(false) })}
         />
         <div className="px-4 py-3">
           {provider.instances.length === 0 ? (

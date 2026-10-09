@@ -15,7 +15,7 @@ Frames are emitted in the shape `web/src/api/chat-stream.ts` parses:
     data:{"code":0,"data":{"answer":"..."}}                  ← incremental text
     data:[DONE]
 
-Derived from RAGFlow (https://github.com/infiniflow/ragflow), Apache-2.0.
+Modified from an upstream Apache-2.0 project; see NOTICE for origin and attribution.
 """
 
 from __future__ import annotations
@@ -233,7 +233,12 @@ def stream_answer(payload: dict) -> "list[str]":
     # to diversify to — so the cap is only meaningful over a pool longer than the slots it fills.
     rerank_pool = keep
     if len(chunks) > keep:
-        ranked = retrieval.llm_rerank(question, chunks, resolve_llm(str(payload.get("model") or "")), rerank_pool)
+        ranked = retrieval.llm_rerank(
+            question,
+            chunks,
+            resolve_llm(str(payload.get("model") or ""), str(payload.get("tenant_id") or "")),
+            rerank_pool,
+        )
         chunks = ranked[:keep]
 
     frames: list[str] = []
@@ -244,7 +249,7 @@ def stream_answer(payload: dict) -> "list[str]":
 
     # Resolved per answer, not at import: enabling a provider in the console must take effect on
     # the next question rather than the next restart. `model` is the assistant's own choice.
-    llm = resolve_llm(str(payload.get("model") or ""))
+    llm = resolve_llm(str(payload.get("model") or ""), str(payload.get("tenant_id") or ""))
     if llm["mode"] != "extractive":
         try:
             for piece in _llm_stream(question, chunks, prompt, temperature, llm):

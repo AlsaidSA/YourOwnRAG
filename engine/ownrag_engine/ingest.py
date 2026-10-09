@@ -7,7 +7,7 @@ tag-stripping reader for HTML. Everything else is read as text.
 
 Chunking implements each method the console offers with different logic — they are not aliases.
 
-Derived from RAGFlow (https://github.com/infiniflow/ragflow), Apache-2.0.
+Modified from an upstream Apache-2.0 project; see NOTICE for origin and attribution.
 """
 
 from __future__ import annotations

@@ -348,6 +348,7 @@ def main() -> int:
             timeout=120,
         )
         agent_answer = ""
+        agent_refs = 0
         for raw in agent_stream.iter_lines(decode_unicode=True):
             if not raw or not raw.startswith("data:"):
                 continue
@@ -360,7 +361,17 @@ def main() -> int:
                 continue
             if isinstance(inner.get("answer"), str):
                 agent_answer += inner["answer"]
-        check("agent produced a grounded answer", "token" in agent_answer.lower(), agent_answer[:120].replace("\n", " "))
+            if inner.get("reference"):
+                agent_refs += len(inner["reference"])
+        # Grounded means the answer is drawn from the agent's own documents and cites them. It used to
+        # require the word "token", which only appeared when a *failed* rerank had narrowed the context to
+        # the floor of three and the extractive builder happened to pick the sentence containing it — a pass
+        # that depended on the vendor's error response rather than on the agent working.
+        check(
+            "agent produced a grounded answer",
+            bool(agent_answer.strip()) and agent_refs > 0 and "[citation:" in agent_answer.lower(),
+            f"{agent_refs} reference(s); " + agent_answer[:90].replace("\n", " "),
+        )
         logs = envelope(requests.get(f"{BASE}/api/v1/agents/{agent_id}/logs", headers=headers, timeout=15)).get("data") or []
         check("agent run was logged", bool(logs), f"{len(logs)} log entries")
         versions = envelope(requests.get(f"{BASE}/api/v1/agents/{agent_id}/versions", headers=headers, timeout=15))

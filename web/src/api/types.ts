@@ -114,6 +114,8 @@ export interface ModelProvider {
   kind: string;
   status: 'added' | 'available';
   logo?: string;
+  /** False for the engine's own in-process model, which cannot be removed. Absent means unknown. */
+  removable?: boolean;
   instances: ProviderInstance[];
 }
 

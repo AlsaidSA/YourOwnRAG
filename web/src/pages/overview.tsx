@@ -640,9 +640,9 @@ export default function OverviewPage() {
                       </dl>
                     )}
                     <div className="mt-4 flex items-center gap-1.5 border-t border-line pt-3 text-2xs text-ink-3">
-                      <Hint label="Derived from and modified from RAGFlow (Apache-2.0)">
+                      <Hint label="Licensed under Apache-2.0; modified from the upstream project">
                         <span className="cursor-default underline decoration-dotted underline-offset-2">
-                          Derived from RAGFlow
+                          Apache-2.0
                         </span>
                       </Hint>
                       <span>·</span>

@@ -12,7 +12,7 @@ import { OwnRagMark, OwnRagWordmark } from '@/components/brand/logo';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toaster';
-import { useAuthStore } from '@/store/auth';
+import { useAuthStore, type SessionUser } from '@/store/auth';
 import { useUiStore } from '@/store/ui';
 
 // The default account of a local engine. It is a compiled-in constant, not something the engine
@@ -64,13 +64,16 @@ export default function LoginPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const result = await api.post<{ access_token?: string; token?: string }>(endpoints.login, {
-        email,
-        password,
-      });
+      // The engine answers with the session *and* the identity behind it. Keeping that identity is what
+      // lets the console offer the right surfaces: the sidebar decides from `role`, so a user object
+      // built from the address alone hides the manager pages from an owner.
+      const result = await api.post<{ access_token?: string; token?: string; user?: SessionUser }>(
+        endpoints.login,
+        { email, password },
+      );
       const token = result?.access_token ?? result?.token;
       if (!token) throw new ApiError('The API did not return a session token.');
-      setSession(token, { email, nickname: email.split('@')[0] ?? email });
+      setSession(token, result?.user ?? { email, nickname: email.split('@')[0] ?? email });
       navigate('/');
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Sign-in failed';
@@ -187,7 +190,7 @@ export default function LoginPage() {
 
           <p className="mt-8 flex items-center gap-1.5 text-2xs text-ink-3">
             <ShieldCheck className="size-3" />
-            Apache-2.0 · derived from RAGFlow, modified for OwnRAG
+            Apache-2.0 · OwnRAG · self-hosted retrieval
           </p>
         </div>
       </div>
@@ -224,7 +227,7 @@ export default function LoginPage() {
           </ul>
           <div className="mt-10 flex items-center gap-2 text-2xs text-ink-3">
             <OwnRagMark size={16} />
-            <span>OwnRAG console — a new client of the preserved RAGFlow API surface</span>
+            <span>OwnRAG console — a client of the preserved API surface</span>
           </div>
         </div>
       </div>

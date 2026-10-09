@@ -1,11 +1,14 @@
 /*
  * Copyright 2026 OwnRAG contributors — Apache-2.0.
  *
- * Product home. This is the one **Decide / Learn** surface in the project: one idea per section, and
- * a hero is correct here. It is written in the console's own language (hairline depth, one accent,
- * mono for figures) rather than a separate marketing style, so the product and its front page look
- * like the same thing. Every figure quoted below was measured in this repository and is repeated
- * from engine/FREEZE-LEDGER.md; nothing here is invented.
+ * Product home — the earlier text-led layout. NOT currently routed: `pages/home.tsx` renders the
+ * product-first layout in `pages/landing-b.tsx` instead. Kept in the tree so the alternative is not
+ * lost; delete it if the project is not going back to it.
+ *
+ * It is written in the console's own language (hairline depth, one accent, mono for figures) rather
+ * than a separate marketing style, so the product and its front page look like the same thing. Every
+ * figure quoted below was measured in this repository and is repeated from engine/FREEZE-LEDGER.md;
+ * nothing here is invented.
  */
 import {
   ArrowRight,
@@ -106,7 +109,7 @@ const PROOF = [
 const FAQ = [
   {
     q: 'What is OwnRAG?',
-    a: 'A self-hosted retrieval-augmented generation stack: an engine that parses, chunks, indexes and retrieves your documents, and a console that operates it. Both run on your infrastructure. The HTTP contract is derived from RAGFlow\u2019s, so existing clients keep working.',
+    a: 'A self-hosted retrieval-augmented generation stack: an engine that parses, chunks, indexes and retrieves your documents, and a console that operates it. Both run on your infrastructure. The HTTP contract follows the established API shape, so existing clients keep working.',
   },
   {
     q: 'Where does my data actually go?',
@@ -194,7 +197,7 @@ function Hero() {
             </Button>
           </div>
           <p className="mt-4 text-2xs text-ink-3">
-            Apache-2.0 &middot; derived from RAGFlow &middot; runs with no model configured at all
+            Apache-2.0 &middot; self-hosted &middot; runs with no model configured at all
           </p>
         </div>
 
@@ -427,8 +430,7 @@ function Footer() {
           <span>OwnRAG — self-hosted retrieval. Apache-2.0.</span>
         </div>
         <p className="max-w-xl leading-relaxed">
-          A derivative work of RAGFlow (infiniflow/ragflow, Apache-2.0); the upstream Go engine is
-          preserved. Not affiliated with or endorsed by InfiniFlow. See NOTICE and DERIVED-WORK.md.
+          Apache-2.0. See NOTICE and LICENSE for attribution.
         </p>
       </div>
     </footer>

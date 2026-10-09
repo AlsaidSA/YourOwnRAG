@@ -49,7 +49,7 @@ human-readable record of attribution, and it does not modify the License.
 ================================================================================
 
 - The upstream React console (formerly in web/) is preserved, byte-for-byte and
-  unmodified, under legacy/ragflow-web/ as a frozen reference snapshot. Its
+  unmodified, under legacy/upstream-web/ as a frozen reference snapshot. Its
   upstream copyright and Apache-2.0 per-file headers are retained intact.
 
 - The new OwnRAG console in web/ is a separate work that consumes the preserved

@@ -12,7 +12,7 @@ import { OwnRagWordmark } from '@/components/brand/logo';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toaster';
-import { useAuthStore } from '@/store/auth';
+import { useAuthStore, type SessionUser } from '@/store/auth';
 
 const MIN_PASSWORD = 8;
 
@@ -64,13 +64,25 @@ export default function SignupPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const result = await api.post<{ access_token?: string; token?: string; email: string; nickname?: string }>(
-        endpoints.register,
-        { email: form.email.trim().toLowerCase(), password: form.password, nickname: form.nickname.trim() || undefined },
-      );
+      const result = await api.post<{
+        access_token?: string;
+        token?: string;
+        email: string;
+        nickname?: string;
+        user?: SessionUser;
+      }>(endpoints.register, {
+        email: form.email.trim().toLowerCase(),
+        password: form.password,
+        nickname: form.nickname.trim() || undefined,
+      });
       const token = result?.access_token ?? result?.token;
       if (!token) throw new ApiError('The API created no session for this account.');
-      setSession(token, { email: result.email, nickname: result.nickname ?? result.email.split('@')[0] });
+      // The register response may not carry the identity yet, so the address is the fallback and the app
+      // shell's `useIdentity` fills in the rest.
+      setSession(
+        token,
+        result.user ?? { email: result.email, nickname: result.nickname ?? result.email.split('@')[0] },
+      );
       toast({ title: 'Account created', description: `Signed in as ${result.email}.`, variant: 'success' });
       navigate('/');
     } catch (caught) {

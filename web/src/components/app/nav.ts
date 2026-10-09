@@ -25,6 +25,8 @@ export interface NavItem {
   /** Match nested routes (detail pages) so the parent stays highlighted. */
   match?: string;
   badge?: 'kbs' | 'agents';
+  /** Owner and admins only: the engine refuses these surfaces to a member, so they are not offered. */
+  manager?: boolean;
   description?: string;
 }
 
@@ -47,16 +49,16 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Connect',
     items: [
-      { label: 'Models', to: '/models', icon: SlidersHorizontal, description: 'Bring your own chat, embedding and rerank models' },
+      { label: 'Models', to: '/models', icon: SlidersHorizontal, manager: true, description: 'Bring your own chat, embedding and rerank models' },
       { label: 'Data sources', to: '/data-sources', icon: Boxes, description: 'Sync from S3, Drive, Slack and more' },
-      { label: 'Memory', to: '/memory', icon: Brain, description: 'Long-lived agent memory stores' },
+      { label: 'Memory', to: '/memory', icon: Brain, manager: true, description: 'Long-lived agent memory stores' },
       { label: 'MCP servers', to: '/mcp', icon: Plug, description: 'Tool servers available to agents' },
     ],
   },
   {
     label: 'Operate',
     items: [
-      { label: 'Developers', to: '/developers', icon: FileCode2, description: 'API keys, endpoints and SDK snippets' },
+      { label: 'Developers', to: '/developers', icon: FileCode2, manager: true, description: 'API keys, endpoints and SDK snippets' },
       { label: 'Settings', to: '/settings', icon: Settings, match: '/settings', description: 'Workspace, team and preferences' },
     ],
   },

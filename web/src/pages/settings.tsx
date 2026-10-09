@@ -10,12 +10,15 @@ import {
   Copy,
   Database,
   KeyRound,
+  MailPlus,
   Moon,
   Palette,
+  RefreshCw,
   Settings2,
   ShieldAlert,
   Sun,
   Trash2,
+  UserPlus,
   Users,
 } from 'lucide-react';
 import * as React from 'react';
@@ -38,8 +41,15 @@ import {
   Switch,
 } from '@/components/ui/controls';
 import { Panel, PanelHeader, DescriptionList, SectionHeader } from '@/components/ui/surface';
-import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
-import { ConfirmDialog } from '@/components/ui/dialog';
+import { EmptyState, ErrorState, InlineError, TableSkeleton } from '@/components/ui/states';
+import {
+  ConfirmDialog,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+} from '@/components/ui/dialog';
 import { Column, DataTable } from '@/components/ui/data-table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toaster';
@@ -80,6 +90,8 @@ interface Tenant {
   name: string;
   role?: string;
   member_count?: number;
+  /** Whether the signed-in account may invite people and manage members. The engine enforces this. */
+  can_manage?: boolean;
 }
 
 interface TenantMember {
@@ -87,13 +99,30 @@ interface TenantMember {
   id?: string;
   email?: string;
   nickname?: string;
+  avatar?: string;
   role?: string;
+  status?: string;
+  is_admin?: boolean;
   create_time?: number;
+}
+
+interface TenantInvitation {
+  id: string;
+  email: string;
+  role: string;
+  status: 'pending' | 'accepted' | 'revoked' | 'expired';
+  create_time?: number;
+  expires_at?: number;
+  invited_by?: string;
+  /** Only ever present in the response that created or resent the link: the engine stores a hash. */
+  token?: string;
+  invite_url?: string;
 }
 
 const SettingsKeys = {
   tenants: () => ['settings', 'tenants'] as const,
   members: (tenantId: string) => ['settings', 'tenant', tenantId, 'members'] as const,
+  invitations: (tenantId: string) => ['settings', 'tenant', tenantId, 'invitations'] as const,
 };
 
 function useTenants() {
@@ -104,11 +133,34 @@ function useTenants() {
   });
 }
 
+/**
+ * What the signed-in account may do here. The engine is the authority — this only decides whether
+ * the console offers the controls at all, so a member never sees buttons that would fail.
+ */
+function useWorkspaceRole(tenantId?: string) {
+  const { data: tenants } = useTenants();
+  const tenant = tenants?.find((t) => t.tenant_id === tenantId);
+  const role = tenant?.role ?? 'member';
+  return {
+    role,
+    canManage: Boolean(tenant?.can_manage ?? (role === 'owner' || role === 'admin')),
+  };
+}
+
 function useTenantMembers(tenantId?: string) {
   return useQuery({
     queryKey: SettingsKeys.members(tenantId ?? ''),
     queryFn: () => api.get<TenantMember[]>(endpoints.tenantUsers(tenantId as string)),
     enabled: Boolean(tenantId),
+  });
+}
+
+/** Pending invitations, fetched only for someone who may manage them. */
+function useTenantInvitations(tenantId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: SettingsKeys.invitations(tenantId ?? ''),
+    queryFn: () => api.get<TenantInvitation[]>(endpoints.invitations(tenantId as string)),
+    enabled: Boolean(tenantId) && enabled,
   });
 }
 
@@ -231,7 +283,7 @@ function WorkspaceTab() {
         <div className="px-4 py-2">
           <DescriptionList
             items={[
-              { label: 'API surface', value: 'Preserved RAGFlow v1', mono: true },
+              { label: 'API surface', value: 'Preserved upstream v1', mono: true },
               { label: 'Workspace', value: tenant ? `${tenant.member_count ?? '—'} members` : '—' },
             ]}
           />
@@ -241,18 +293,82 @@ function WorkspaceTab() {
   );
 }
 
+/** Uniform failure text: the engine's message when it gave one, otherwise a plain fallback. */
+function errorMessage(e: unknown, fallback = 'The engine refused the request.') {
+  return e instanceof ApiError ? e.message : fallback;
+}
+
 function TeamTab() {
   const { data: tenants } = useTenants();
   const tenantId = tenants?.[0]?.tenant_id;
+  const { role, canManage } = useWorkspaceRole(tenantId);
   const { data: members, isLoading, isError, error, refetch } = useTenantMembers(tenantId);
+  const invites = useTenantInvitations(tenantId, canManage);
+  const queryClient = useQueryClient();
+  const [inviteOpen, setInviteOpen] = React.useState(false);
+  const [issued, setIssued] = React.useState<TenantInvitation | null>(null);
+  const [removing, setRemoving] = React.useState<TenantMember | null>(null);
+  // The target id lives in its own state: the confirm dialog's open/close events must not be
+  // able to clear it out from under the handler that acts on it. Only the mutation clears it.
+  const [removingId, setRemovingId] = React.useState<string | null>(null);
 
-  const columns: Column<TenantMember>[] = [
+  const refresh = React.useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: SettingsKeys.members(tenantId ?? '') });
+    void queryClient.invalidateQueries({ queryKey: SettingsKeys.invitations(tenantId ?? '') });
+    void queryClient.invalidateQueries({ queryKey: SettingsKeys.tenants() });
+  }, [queryClient, tenantId]);
+
+  const changeRole = useMutation({
+    mutationFn: ({ userId, role: next }: { userId: string; role: string }) =>
+      api.patch(endpoints.tenantUser(tenantId as string, userId), { role: next }),
+    onSuccess: (_data, vars) => {
+      toast({ title: 'Role updated', description: `That member is now ${vars.role}.`, variant: 'success' });
+      refresh();
+    },
+    onError: (e) => toast({ title: 'Could not change the role', description: errorMessage(e), variant: 'error' }),
+  });
+
+  const removeMember = useMutation({
+    mutationFn: (userId: string) => api.delete(endpoints.tenantUser(tenantId as string, userId)),
+    onSuccess: () => {
+      toast({ title: 'Member removed', description: 'Their sessions were revoked immediately.', variant: 'success' });
+      setRemoving(null);
+      setRemovingId(null);
+      refresh();
+    },
+    onError: (e) => {
+      toast({ title: 'Could not remove the member', description: errorMessage(e), variant: 'error' });
+      setRemoving(null);
+      setRemovingId(null);
+    },
+  });
+
+  const resend = useMutation({
+    mutationFn: (inviteId: string) =>
+      api.post<TenantInvitation>(endpoints.invitationResend(tenantId as string, inviteId), {}),
+    onSuccess: (invite) => {
+      setIssued(invite);
+      refresh();
+    },
+    onError: (e) => toast({ title: 'Could not resend the invitation', description: errorMessage(e), variant: 'error' }),
+  });
+
+  const revoke = useMutation({
+    mutationFn: (inviteId: string) => api.delete(endpoints.invitation(tenantId as string, inviteId)),
+    onSuccess: () => {
+      toast({ title: 'Invitation revoked', description: 'The link no longer works.', variant: 'success' });
+      refresh();
+    },
+    onError: (e) => toast({ title: 'Could not revoke the invitation', description: errorMessage(e), variant: 'error' }),
+  });
+
+  const memberColumns: Column<TenantMember>[] = [
     {
       key: 'member',
       header: 'Member',
       render: (row) => (
         <div className="flex items-center gap-2.5">
-          <Avatar name={row.nickname ?? row.email ?? row.user_id} size={24} />
+          <Avatar name={row.nickname ?? row.email ?? row.user_id} src={row.avatar} size={24} />
           <div className="min-w-0">
             <p className="truncate text-sm text-ink">{row.nickname ?? row.email ?? row.user_id ?? 'Member'}</p>
             <p className="truncate font-mono text-2xs text-ink-3">{row.email ?? row.user_id ?? '—'}</p>
@@ -263,11 +379,34 @@ function TeamTab() {
     {
       key: 'role',
       header: 'Role',
-      render: (row) => (
-        <Badge tone={row.role === 'owner' ? 'accent' : 'outline'} size="sm">
-          {row.role ? titleCase(row.role) : 'member'}
-        </Badge>
-      ),
+      render: (row) => {
+        const userId = row.user_id ?? row.id;
+        // The owner's role is fixed by the engine, and a member may not edit anyone at all, so the
+        // control is only offered where it can actually succeed.
+        if (!canManage || row.role === 'owner' || !userId) {
+          return (
+            <Badge tone={row.role === 'owner' ? 'accent' : 'outline'} size="sm">
+              {row.role ? titleCase(row.role) : 'member'}
+            </Badge>
+          );
+        }
+        return (
+          <Select
+            value={row.role ?? 'member'}
+            onValueChange={(next) => changeRole.mutate({ userId, role: next })}
+          >
+            <SelectTrigger className="h-7 w-28 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="member">Member</SelectItem>
+              <SelectItem value="admin" disabled={role !== 'owner'}>
+                Admin
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        );
+      },
     },
     {
       key: 'joined',
@@ -279,6 +418,98 @@ function TeamTab() {
           <span className="text-2xs text-ink-3">—</span>
         ),
     },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      render: (row) => {
+        const userId = row.user_id ?? row.id;
+        if (!canManage || !userId || row.role === 'owner') return <span className="text-2xs text-ink-3">—</span>;
+        return (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Remove ${row.email ?? userId}`}
+            onClick={() => {
+              setRemoving(row);
+              setRemovingId(row.user_id ?? row.id ?? null);
+            }}
+          >
+            <Trash2 className="size-3.5" />
+            Remove
+          </Button>
+        );
+      },
+    },
+  ];
+
+  const inviteColumns: Column<TenantInvitation>[] = [
+    {
+      key: 'email',
+      header: 'Invited',
+      render: (row) => (
+        <div className="min-w-0">
+          <p className="truncate font-mono text-xs text-ink">{row.email}</p>
+          <p className="text-2xs text-ink-3">
+            {row.create_time ? `sent ${formatRelativeTime(row.create_time)}` : 'pending'}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: 'role',
+      header: 'Role',
+      render: (row) => (
+        <Badge tone="outline" size="sm">
+          {titleCase(row.role)}
+        </Badge>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (row) => (
+        <Badge tone={row.status === 'pending' ? 'accent' : row.status === 'accepted' ? 'outline' : 'danger'} size="sm">
+          {titleCase(row.status)}
+        </Badge>
+      ),
+    },
+    {
+      key: 'expires',
+      header: 'Expires',
+      render: (row) =>
+        row.status === 'pending' && row.expires_at ? (
+          <span className="text-xs text-ink-2">{formatRelativeTime(row.expires_at)}</span>
+        ) : (
+          <span className="text-2xs text-ink-3">—</span>
+        ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      render: (row) => (
+        <div className="flex justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={row.status === 'accepted' || resend.isPending}
+            onClick={() => resend.mutate(row.id)}
+          >
+            <RefreshCw className="size-3.5" />
+            Resend
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={row.status === 'accepted' || revoke.isPending}
+            onClick={() => revoke.mutate(row.id)}
+          >
+            Revoke
+          </Button>
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -287,14 +518,25 @@ function TeamTab() {
         title={tenants?.[0]?.name ?? 'Workspace members'}
         description="Everyone with access to this workspace and the role that gates what they can change."
         actions={
-          tenants?.[0]?.member_count !== undefined ? (
-            <Badge tone="outline">{tenants[0].member_count} members</Badge>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            {tenants?.[0]?.member_count !== undefined ? (
+              <Badge tone="outline">{tenants[0].member_count} members</Badge>
+            ) : null}
+            {canManage ? (
+              <Button size="sm" onClick={() => setInviteOpen(true)}>
+                <UserPlus className="size-3.5" />
+                Invite people
+              </Button>
+            ) : null}
+          </div>
         }
       />
+
+      {issued ? <InvitationLink invite={issued} onDismiss={() => setIssued(null)} /> : null}
+
       <div className="overflow-hidden rounded-lg border border-line bg-surface-1">
         {isLoading ? (
-          <TableSkeleton rows={4} columns={3} />
+          <TableSkeleton rows={4} columns={4} />
         ) : isError ? (
           <ErrorState error={error} onRetry={() => refetch()} />
         ) : (members ?? []).length === 0 ? (
@@ -302,17 +544,216 @@ function TeamTab() {
             compact
             icon={<Users />}
             title="No members to show"
-            description="This workspace has no member list yet. Invitations and role changes are handled on the API server; members appear here once they join."
+            description="You are the only account in this workspace so far. Invite someone to work alongside you."
           />
         ) : (
-          <DataTable columns={columns} rows={members ?? []} rowKey={(row, i) => row.user_id ?? row.id ?? String(i)} />
+          <DataTable columns={memberColumns} rows={members ?? []} rowKey={(row, i) => row.user_id ?? row.id ?? String(i)} />
         )}
       </div>
+
+      <div className="flex flex-col gap-2 pt-1">
+        <SectionHeader
+          title="Invitations"
+          description="A link is the credential. It is shown once when issued, and resending replaces it with a fresh one."
+        />
+        <div className="overflow-hidden rounded-lg border border-line bg-surface-1">
+          {!canManage ? (
+            <EmptyState
+              compact
+              icon={<ShieldAlert />}
+              title="Only owners and admins can see invitations"
+              description="Ask an owner or admin of this workspace to invite people."
+            />
+          ) : invites.isLoading ? (
+            <TableSkeleton rows={2} columns={4} />
+          ) : invites.isError ? (
+            <ErrorState error={invites.error} onRetry={() => void invites.refetch()} />
+          ) : (invites.data ?? []).length === 0 ? (
+            <EmptyState
+              compact
+              icon={<MailPlus />}
+              title="No invitations yet"
+              description="Invite a colleague by email address and share the link the console issues."
+            />
+          ) : (
+            <DataTable
+              columns={inviteColumns}
+              rows={invites.data ?? []}
+              rowKey={(row) => row.id}
+            />
+          )}
+        </div>
+      </div>
+
       <p className="text-2xs text-ink-3">
-        Roles: owner (full control), admin (manage content and members), member (build and query). Invite and role
-        changes are issued by the deployment operator against the tenants API.
+        Roles: owner (full control) · admin (manage content and members) · member (build and query). The engine enforces
+        every rule above — the console only hides what would fail. This engine has no mail server, so an invitation is
+        delivered as a link you copy and send yourself.
       </p>
+
+      <InvitePeopleDialog
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
+        tenantId={tenantId}
+        canGrantAdmin={role === 'owner'}
+        onCreated={(invite) => {
+          setIssued(invite);
+          refresh();
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(removing)}
+        onOpenChange={(open) => !open && setRemoving(null)}
+        title="Remove this member?"
+        description={`${removing?.email ?? 'This account'} loses access immediately and any session they hold stops working. They can be invited again later.`}
+        confirmLabel="Remove member"
+        destructive
+        loading={removeMember.isPending}
+        onConfirm={() => {
+          if (removingId) removeMember.mutate(removingId);
+        }}
+      />
     </div>
+  );
+}
+
+/** The one moment an invitation link exists: shown with a copy button, then gone by design. */
+function InvitationLink({ invite, onDismiss }: { invite: TenantInvitation; onDismiss: () => void }) {
+  const link = invite.invite_url ?? (invite.token ? `${window.location.origin}/invite/${invite.token}` : '');
+  return (
+    <Panel className="border-accent/40">
+      <PanelHeader
+        title={`Invitation link for ${invite.email}`}
+        description="Send this link to the person you invited. It expires, and only this one time it is shown here — resend from the list below for another."
+        icon={<Copy />}
+        actions={
+          <Button variant="ghost" size="sm" onClick={onDismiss}>
+            Dismiss
+          </Button>
+        }
+      />
+      <div className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center">
+        <Input readOnly value={link} className="font-mono text-xs" aria-label="Invitation link" />
+        <Button size="sm" onClick={() => void copyText(link)} className="shrink-0">
+          <Copy className="size-3.5" />
+          Copy link
+        </Button>
+      </div>
+    </Panel>
+  );
+}
+
+function InvitePeopleDialog({
+  open,
+  onOpenChange,
+  tenantId,
+  canGrantAdmin,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  tenantId?: string;
+  canGrantAdmin: boolean;
+  onCreated: (invite: TenantInvitation) => void;
+}) {
+  const [email, setEmail] = React.useState('');
+  const [role, setRole] = React.useState('member');
+  const [error, setError] = React.useState<string | null>(null);
+  const [issued, setIssued] = React.useState<TenantInvitation | null>(null);
+
+  React.useEffect(() => {
+    if (open) return;
+    setEmail('');
+    setRole('member');
+    setError(null);
+    setIssued(null);
+  }, [open]);
+
+  const create = useMutation({
+    mutationFn: () =>
+      api.post<TenantInvitation>(endpoints.invitations(tenantId as string), { email: email.trim(), role }),
+    onSuccess: (invite) => {
+      setIssued(invite);
+      setEmail('');
+      onCreated(invite);
+    },
+    onError: (e) => setError(errorMessage(e)),
+  });
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    setError(null);
+    create.mutate();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader
+          title="Invite people"
+          description="The engine issues a one-time link. Copy it and send it however you like."
+        />
+        <DialogBody>
+          {issued ? (
+            <div className="flex flex-col gap-3">
+              <p className="text-xs text-ink-2">
+                Invitation ready for <span className="font-mono text-ink">{issued.email}</span> as {titleCase(issued.role)}.
+              </p>
+              <InvitationLink invite={issued} onDismiss={() => setIssued(null)} />
+            </div>
+          ) : (
+            <form className="flex flex-col gap-3" onSubmit={submit}>
+              <Field label="Email address" hint="They sign in as this address.">
+                <Input
+                  type="email"
+                  autoFocus
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@company.com"
+                />
+              </Field>
+              <Field
+                label="Role"
+                hint={
+                  canGrantAdmin
+                    ? 'Admins manage content and members. Only the owner can create admins.'
+                    : 'Only the workspace owner can invite an admin.'
+                }
+              >
+                <Select value={role} onValueChange={setRole}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="member">Member — build and query</SelectItem>
+                    <SelectItem value="admin" disabled={!canGrantAdmin}>
+                      Admin — manage content and members
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              {error ? <InlineError message={error} /> : null}
+            </form>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          {issued ? (
+            <Button onClick={() => onOpenChange(false)}>Done</Button>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button onClick={submit} disabled={create.isPending || !email.trim()}>
+                {create.isPending ? 'Creating…' : 'Create invitation'}
+              </Button>
+            </>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -342,13 +783,6 @@ function AppearanceTab() {
             ]}
           />
         </div>
-      </Panel>
-      <Panel>
-        <PanelHeader title="Density" description="OwnRAG is a dense instrument panel by design." />
-        <p className="px-4 py-3 text-xs leading-relaxed text-ink-3">
-          Rows are 28–36px and metadata is set at the smallest step of the type scale. There is no compact/comfortable
-          toggle — the density is tuned for scanning, and every table scrolls rather than wraps on a narrow screen.
-        </p>
       </Panel>
     </div>
   );

@@ -1,6 +1,6 @@
 /*
  * Copyright 2026 OwnRAG contributors
- * Derived from RAGFlow (https://github.com/infiniflow/ragflow),
+ * Modified from an upstream Apache-2.0 project; see NOTICE for origin and attribution.
  * Copyright 2026 The InfiniFlow Authors. Licensed under the Apache License, Version 2.0.
  *
  * Session state. A token is read back on demand so the transport layer never needs a
@@ -15,6 +15,8 @@ export interface SessionUser {
   nickname: string;
   avatar?: string | null;
   tenant_id?: string;
+  /** The engine's role for this account: owner, admin or member. */
+  role?: string;
   is_admin?: boolean;
   language?: string;
 }

@@ -61,6 +61,9 @@ export function Sidebar() {
   const toggleTheme = useUiStore((state) => state.toggleTheme);
   const user = useAuthStore((state) => state.user);
   const clearSession = useAuthStore((state) => state.clear);
+  // What the engine would allow. `is_admin` is the older field, still honoured for a stored session
+  // that predates roles.
+  const isManager = user?.role === 'owner' || user?.role === 'admin' || Boolean(user?.is_admin);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -87,6 +90,9 @@ export function Sidebar() {
             </p>
           )}
           {group.items.map((item) => {
+            // Hide, rather than open and fail: a member has no use for the workspace's models, memory
+            // stores or API keys, and the engine refuses them anyway.
+            if (item.manager && !isManager) return null;
             const Icon = item.icon;
             const active =
               item.to === '/'

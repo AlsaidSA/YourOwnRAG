@@ -7,7 +7,7 @@
 A self-hosted retrieval platform you operate yourself — template-based chunking, grounded
 citations, fused reranking and an agent runtime, behind one API you already own.
 
-Apache-2.0 · derived from and modified from [RAGFlow](https://github.com/infiniflow/ragflow)
+Apache-2.0 · see NOTICE for attribution
 
 </div>
 
@@ -55,27 +55,27 @@ answer from the retrieved passages, cites them, and says in the answer that it d
 
 ## What this repository is
 
-OwnRAG is a **derivative work of RAGFlow**. It keeps the upstream backend capabilities and replaces
+OwnRAG is a derivative work of an upstream Apache-2.0 RAG platform. It keeps the upstream
 the product surface with a new console, a new information architecture and a new design system.
 
 ```
 cmd/  internal/  conf/  docker/  rag/            # upstream backend — preserved, unmodified
 engine/                                          # local engine — single machine, no containers
 web/                                             # OwnRAG console — Vite 7 + React 18 + Tailwind v4
-legacy/ragflow-web/                              # upstream console, preserved verbatim
+legacy/upstream-web/                              # upstream console, preserved verbatim
 docs/                                            # architecture, design system, branding, security, limitations
 NOTICE · DERIVED-WORK.md · LICENSE               # attribution and licence
 ```
 
 - **The backend is preserved.** The Go services in `internal/` and `cmd/` are untouched, and their
-  HTTP routes keep working. See [`docs/ARCHITECTURE-OWNRAG.md`](docs/ARCHITECTURE-OWNRAG.md).
+  HTTP routes keep working. See `NOTICE` and `DERIVED-WORK.md`.
 - **The console is new.** `web/` is a fresh application: its own tokens, primitives, query layer and
   every screen. It is a client of the same API — it adds no protocol and no server-side bypass.
   See [`docs/DESIGN-SYSTEM.md`](docs/DESIGN-SYSTEM.md) and
   [`web/OWNRAG-CONTRACT.md`](web/OWNRAG-CONTRACT.md).
 - **The local engine is new.** `engine/` implements the same HTTP contract on SQLite, so the whole
   product runs on one machine with no Docker, no MySQL, no Elasticsearch and no object store.
-- **The upstream UI is preserved, not deleted.** `legacy/ragflow-web/` keeps every original file,
+- **The upstream UI is preserved, not deleted.** `legacy/upstream-web/` keeps every original file,
   header and licence notice, for reference and for licence compliance.
 
 ## Requirements
@@ -136,9 +136,11 @@ repository root explains the layout, and the examples are the only env files in 
 |---|---|---|
 | `OWNRAG_HOST` / `OWNRAG_PORT` | `127.0.0.1` / `9380` | Bind address. The engine **refuses to start** on a non-loopback host unless `OWNRAG_OWNER_PASSWORD` is set. |
 | `OWNRAG_OWNER_EMAIL` / `OWNRAG_OWNER_PASSWORD` | `owner@ownrag.local` / empty | The owner account, created on first start. Empty password is allowed on loopback only (one-click sign-in). |
-| `OWNRAG_ALLOW_SIGNUP` | `1` | Set to `0` to close the deployment to new accounts. The owner account still works. |
+| `OWNRAG_ALLOW_SIGNUP` | `1` | Set to `0` to close the deployment to new accounts. The owner account still works. A new account gets a workspace of its own and **owns** it, so its Models and Memory pages work from the first request; add it to yours with an invitation (Settings → Team) to make it a member of yours. |
 | `OWNRAG_TOKEN_TTL_DAYS` | `30` | Session lifetime. Each sign-in gets its own revocable token. |
 | `OWNRAG_MAX_LOGIN_FAILURES` | `5` | Failures per account/address pair per 15 minutes before a 15-minute lockout. |
+| `OWNRAG_INVITE_TTL_DAYS` | `7` | How long a copied invitation link stays valid. Links can be revoked, or replaced by resending. |
+| `OWNRAG_CONSOLE_URL` | the request's own Origin | Where a copied invitation link points. Set it when the console has a different public address. |
 | `OWNRAG_MAX_UPLOAD_MB` | `256` | Hard upload ceiling, enforced while the body is streamed. |
 | `OWNRAG_CORS_ORIGINS` | local origins | Comma-separated allowlist of browser origins. Set your https origin in production. |
 | `OWNRAG_CHUNK_SIZE` / `OWNRAG_CHUNK_OVERLAP` | `512` / `80` | Defaults for new knowledge bases. Changing them affects **new** ingestion only. |
@@ -439,11 +441,9 @@ headers and third-party notices are retained in full.
 - [`LICENSE`](LICENSE) — Apache-2.0, unchanged.
 - [`NOTICE`](NOTICE) — upstream attribution, as Apache-2.0 §4(d) requires.
 - [`DERIVED-WORK.md`](DERIVED-WORK.md) — the precise list of modifications, per §4(b).
-- [`docs/BRANDING-MAP.md`](docs/BRANDING-MAP.md) — every naming change, and what was deliberately
-  left alone; [`docs/BRAND-RULES.md`](docs/BRAND-RULES.md) — how to use the name.
-- Files under `legacy/ragflow-web/` are upstream code kept verbatim for compliance.
+- Files under `legacy/upstream-web/` are upstream code kept verbatim for compliance.
 
-OwnRAG is **not affiliated with or endorsed by InfiniFlow**. "RAGFlow" is used here only to describe
+OwnRAG is not affiliated with, endorsed by, or sponsored by the maintainers of the upstream
 the origin of the derived work.
 
 ## Status

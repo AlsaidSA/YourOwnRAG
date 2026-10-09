@@ -1,7 +1,7 @@
 [project]
-name = "ragflow"
+name = "ownrag"
 version = "1.0.0-rc1"
-description = "[RAGFlow](https://ragflow.io/) is an open-source RAG (Retrieval-Augmented Generation) engine based on deep document understanding. It offers a streamlined RAG workflow for businesses of any scale, combining LLM (Large Language Models) to provide truthful question-answering capabilities, backed by well-founded citations from various complex formatted data."
+description = "OwnRAG — self-hosted retrieval-augmented generation. Your data. Your models. Your RAG."
 authors = [{ name = "Zhichang Yu", email = "yuzhichang@gmail.com" }]
 license-files = ["LICENSE"]
 readme = "README.md"
@@ -92,7 +92,7 @@ exclude-dependencies = [
     # crawl4ai>=0.8.6 depends on unclecode-litellm, which installs the same
     # `litellm` package namespace as upstream litellm and can corrupt imports.
     "unclecode-litellm",
-    # Transitive dep of agentrun-sdk; not imported anywhere in RAGFlow code.
+    # Transitive dep of agentrun-sdk; not imported anywhere in this codebase.
     "agentrun-mem0ai",
 ]
 override-dependencies = [
@@ -100,7 +100,7 @@ override-dependencies = [
     # attrs 23.x is backward-compatible; moodlepy works fine at runtime with it.
     "attrs>=23.2.0",
     # numpy 1.26.x has no cp313 wheels on PyPI; uv then builds from source (often fails on
-    # Windows, see infiniflow/ragflow#19928). graspologic pins numpy<2 but works on 2.x.
+    # Windows). graspologic pins numpy<2 but works on 2.x.
     # Cap at <2.4: numba (via hyppo/graspologic) requires numpy<=2.3.
     "numpy>=2.1.0,<2.4.0",
 ]
@@ -126,7 +126,6 @@ packages = [
     'tools.chatgpt_on_wechat.plugins',
     'mcp.server',
     'rag',
-    'sdk.python.ragflow_sdk',
 ]
 
 # tools/ holds standalone Python projects whose names contain hyphens

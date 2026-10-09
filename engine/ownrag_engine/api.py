@@ -1,7 +1,7 @@
 """
 OwnRAG engine — the HTTP surface.
 
-Implements the preserved RAGFlow contract (`/api/v1/*`) that `web/src/api/endpoints.ts` calls,
+Implements the preserved upstream HTTP contract (`/api/v1/*`) that `web/src/api/endpoints.ts` calls,
 with the same `{code, data, message, total}` envelope and HTTP 200 for application errors, so the
 OwnRAG console runs against it with no page-level change.
 
@@ -10,7 +10,7 @@ retrieval, chat sessions and messages, agents and their DSL, provider/model regi
 What is honest: with no model configured, embeddings are the engine's built-in lexical vectors and
 answers are extractive — both are labelled as such in `/system/version` and in every answer.
 
-Derived from RAGFlow (https://github.com/infiniflow/ragflow), Apache-2.0.
+Modified for OwnRAG from the upstream Apache-2.0 project; see NOTICE for attribution.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from fastapi import FastAPI, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 
-from . import auth, connectors, core, ingest, retrieval
+from . import access, auth, connectors, core, ingest, retrieval, team
 from .answering import stream_answer
 from .core import (
     DB_PATH,
@@ -67,6 +67,10 @@ OPEN_PATHS = {
     "/api/v1/users",
     "/health",
 }
+
+# Invitation links are opened by people who have no account yet, so the token is the credential:
+# these paths answer without a session and validate the token themselves.
+OPEN_PREFIXES = ("/api/v1/invitations/",)
 
 CHUNK_METHODS = [
     "naive", "general", "book", "laws", "manual", "paper",
@@ -278,6 +282,66 @@ async def security_headers(request: Request, call_next):
     return response
 
 
+def actor_of(request: Request):
+    """The signed-in user for this request, as the auth middleware resolved it."""
+    return getattr(request.state, "actor", None)
+
+
+def scope_denial(path: str, actor) -> str:
+    """The refusal if this path reaches a workspace resource the caller may not touch.
+
+    Authentication says who you are; this says what you may touch. It runs at the path so that every
+    route under a resource is covered by one rule instead of each handler remembering to filter. A
+    resource id is recognisable by its prefix, so the dataset and assistant trees are guarded
+    without listing the routes under them. Returns "" to allow.
+    """
+    if not path.startswith("/api/v1/"):
+        return ""
+    segments = path[len("/api/v1/") :].split("/")
+    head = segments[0] if segments else ""
+    second = segments[1] if len(segments) > 1 else ""
+    manager_only = "Only the workspace owner and admins may do that"
+    if head == "datasets" and second.startswith("kb_"):
+        if not access.may_reach_dataset(actor, second):
+            return "This knowledge base belongs to another account"
+    elif head == "chats" and second.startswith("chat_"):
+        if not access.may_reach_chat(actor, second):
+            return "This assistant belongs to another account"
+    elif head == "tenants" and second:
+        # A workspace's member list belongs to that workspace. Without this any signed-in account
+        # could read any workspace's roster — and after accounts got their own workspaces, that list
+        # is somebody else's business.
+        if access.tenant_of(actor) != second:
+            return "That workspace belongs to another account"
+    elif head == "connectors" and second.startswith("conn_"):
+        if not access.may_reach(actor, "connector", second):
+            return "This data source belongs to another workspace"
+    elif head == "agents" and second.startswith("agent_"):
+        if not access.may_reach(actor, "agent", second):
+            return "This agent belongs to another workspace"
+    elif head == "mcp" and len(segments) > 2 and segments[2].startswith("mcp_"):
+        # The id is in the third segment here (/mcp/servers/mcp_...), unlike the other surfaces.
+        if not access.may_reach(actor, "mcp_server", segments[2]):
+            return "This tool server belongs to another workspace"
+    elif head == "files" and second.startswith("file_"):
+        if not access.may_reach(actor, "file", second):
+            return "This file belongs to another workspace"
+    elif head == "providers" and second != "catalog":
+        if not access.is_manager(actor):
+            return manager_only
+    elif head == "memories" and second.startswith("mem_"):
+        # A rank check is not enough now that every workspace has a manager: the row decides.
+        if not access.may_reach(actor, "memory", second):
+            return "This memory store belongs to another workspace"
+    elif head == "memories":
+        if not access.is_manager(actor):
+            return manager_only
+    elif head == "system" and second == "tokens":
+        if not access.is_manager(actor):
+            return manager_only
+    return ""
+
+
 @app.middleware("http")
 async def require_token(request: Request, call_next):
     path = request.url.path
@@ -286,7 +350,7 @@ async def require_token(request: Request, call_next):
     # Everything the API serves is guarded, including the schema (`/openapi.json`), the docs
     # renderers and the preserved `/v1/*` compat prefix — not just `/api/*`.
     guarded = path.startswith("/api/") or path.startswith("/v1/") or path in {"/openapi.json", "/redoc"}
-    if not guarded or path in OPEN_PATHS:
+    if not guarded or path in OPEN_PATHS or path.startswith(OPEN_PREFIXES):
         return await call_next(request)
     header = request.headers.get("authorization") or ""
     token = header[7:].strip() if header.lower().startswith("bearer ") else header.strip()
@@ -297,7 +361,20 @@ async def require_token(request: Request, call_next):
         return JSONResponse(status_code=401, content=fail("Authentication required", 401))
     request.state.token = token
     request.state.user_id = row["user_id"] if "user_id" in row.keys() else None
+    actor = auth.user_for_token(token)
+    if actor is None and not str(row["name"] or "").startswith("session "):
+        # A machine key (an API key) carries no user by design: it acts for the workspace, which is
+        # what it is issued for, and only a manager can create one. An ownerless *session* is a
+        # different thing — those are claimed for the owner at startup and must never become
+        # privileged by accident, so this deliberately does not cover them.
+        actor = one("SELECT * FROM user WHERE id = ?", (OWNER_ID,))
+    request.state.actor = actor
     auth.touch_token(token)
+    # Enforce the resource scope before any handler runs: an account that does not own a knowledge
+    # base gets the same refusal whether it guessed the id or read it from a listing.
+    denial = scope_denial(path, request.state.actor)
+    if denial:
+        return JSONResponse(status_code=403, content=fail(denial, 403))
     return await call_next(request)
 
 
@@ -316,6 +393,29 @@ async def _startup() -> None:
     if unowned:
         x("UPDATE api_token SET user_id = ? WHERE user_id IS NULL OR user_id = ''", (OWNER_ID,))
         print(f"[ownrag-engine] sessions : claimed {unowned} legacy token(s) for the owner")
+    # Accounts written before workspaces existed have no tenant, and `team.members` reads an empty
+    # tenant as "belongs to whoever is asking" — which put every legacy account in every roster. Place
+    # them in the owner's workspace once, explicitly, so membership is a fact rather than a default.
+    homeless = one("SELECT COUNT(*) AS n FROM user WHERE tenant_id IS NULL OR tenant_id = ''")["n"]
+    if homeless:
+        x("UPDATE user SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id = ''", (TENANT_ID,))
+        print(f"[ownrag-engine] accounts : placed {homeless} legacy account(s) in the owner's workspace")
+    # An account alone in a workspace *other than the owner's* owns that workspace. Accounts written
+    # before roles existed were left as members of a workspace they had created themselves.
+    solo = q(
+        "SELECT id, email FROM user WHERE tenant_id IS NOT NULL AND tenant_id <> ?"
+        " AND (SELECT COUNT(*) FROM user m WHERE m.tenant_id = user.tenant_id) = 1",
+        (TENANT_ID,),
+    )
+    for row in solo:
+        x("UPDATE user SET role = 'owner', is_admin = 1 WHERE id = ?", (row["id"],))
+        print(f"[ownrag-engine] accounts : {row['email']} now owns its own workspace")
+    # An assistant's stored `model_name` is a pin: it decides who answers. A pin naming a model its own
+    # workspace cannot use answers nothing, so it is re-resolved to a model the workspace can use. That is
+    # how an assistant in a brand-new workspace came to be stamped with another workspace's provider.
+    repinned = _repin_assistants()
+    if repinned:
+        print(f"[ownrag-engine] models   : re-pinned {repinned} assistant(s) to a model their workspace can use")
     print(f"[ownrag-engine] data dir : {DB_PATH.parent}")
     print(f"[ownrag-engine] mode     : {json.dumps(model_mode())}")
 
@@ -382,6 +482,7 @@ async def login(request: Request):
                 "email": user["email"],
                 "nickname": user["nickname"],
                 "is_admin": bool(user["is_admin"]),
+                "role": team.role_of(user),
                 "tenant_id": user["tenant_id"],
             },
         }
@@ -422,16 +523,23 @@ async def register(request: Request):
         return fail(problem, 100)
 
     user_id = new_id("user")
+    # A new account gets a workspace of its own. Signing up must not drop a stranger into the owner's
+    # workspace, where they would show up in its team list: joining someone else's workspace is a
+    # deliberate act, and an invitation is how it happens.
+    workspace_id = new_id("tenant")
     x(
-        "INSERT INTO user (id, email, password, nickname, tenant_id, is_admin, create_time, last_login)"
-        " VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT INTO user (id, email, password, nickname, tenant_id, is_admin, role, create_time, last_login)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
         (
             user_id,
             email,
             auth.hash_password(password),
             str(payload.get("nickname") or email.split("@")[0])[:64],
-            TENANT_ID,
-            0,
+            workspace_id,
+            # An account that creates a workspace owns it. Calling it a member was a leftover from when
+            # the engine had one workspace; whoever it invites is who the invitation says, not the owner.
+            1,
+            "owner",
             now_ms(),
             now_ms(),
         ),
@@ -467,38 +575,193 @@ async def users_me(request: Request):
             "avatar": user["avatar"],
             "language": user["language"] or "en",
             "is_admin": bool(user["is_admin"]),
+            "role": team.role_of(user),
             "tenant_id": user["tenant_id"] or TENANT_ID,
         }
     )
 
 
 @app.get("/api/v1/users/me/models")
-async def users_me_models():
-    kind = model_mode()
-    return ok({"chat": [kind["generation"]], "embedding": [kind["embeddings"]], "rerank": [kind["rerank"]]})
+async def users_me_models(request: Request):
+    """Every chat model this workspace may pin, in the engine's own stamp form.
+
+    This returned a single label — whatever was already resolved — so the console's model dropdown offered
+    exactly the model that was already answering. A provider could be registered, keyed and switched on and
+    still be unpickable, which from the outside is "I cannot use my model with the chat tab". The engine's
+    own model is listed first: it needs no key and cannot fail.
+    """
+    actor = actor_of(request)
+    tenant = access.tenant_of(actor)
+    resolved = model_mode(tenant)
+    rows = q(
+        "SELECT pm.model AS model, p.name AS provider, p.tenant_id AS tenant_id, p.base_url AS base_url"
+        " FROM provider_model pm JOIN provider p ON p.id = pm.provider_id"
+        " WHERE pm.kind = 'chat' AND pm.enabled = 1 ORDER BY p.create_time, pm.model",
+    )
+    pairs: list[tuple[str, str]] = []
+    for row in rows:
+        provider = str(row["provider"])
+        if provider == core.BUILTIN_PROVIDER:
+            label = resolved["generation"]
+        else:
+            if not (row["base_url"] or core.KNOWN_BASE_URLS.get(provider.lower())):
+                continue  # an address-less provider is not configured
+            if str(row["tenant_id"] or "") != tenant:
+                continue  # an external provider serves the workspace that added it
+            if provider in core.test_provider_names():
+                continue  # a fixture must not offer itself as the deployment's answering model
+            label = f"llm:{row['model']}"
+        if (label, provider) not in pairs:
+            pairs.append((label, provider))
+    pairs.sort(key=lambda pair: pair[1] != core.BUILTIN_PROVIDER)
+    seen: dict[str, int] = {}
+    for label, _provider in pairs:
+        seen[label] = seen.get(label, 0) + 1
+    # `@provider` only where the workspace serves the same name twice, so the picker stays readable.
+    chat = [label if seen[label] == 1 else f"{label}@{provider}" for label, provider in pairs]
+    return ok(
+        {
+            "chat": chat or [resolved["generation"]],
+            "embedding": [resolved["embeddings"]],
+            "rerank": [resolved["rerank"]],
+        }
+    )
 
 
 @app.get("/api/v1/tenants")
-async def tenants():
-    members = one("SELECT COUNT(*) AS n FROM user")["n"]
-    return ok([{"tenant_id": TENANT_ID, "name": "OwnRAG workspace", "role": "owner", "member_count": members}])
+async def tenants(request: Request):
+    actor = auth.user_for_token(getattr(request.state, "token", ""))
+    return ok(
+        [
+            {
+                # The caller's own workspace. This used to report the constant, so every account
+                # saw one shared workspace — which is why a new signup appeared in the owner's team.
+                "tenant_id": access.tenant_of(actor),
+                "name": "OwnRAG workspace",
+                "role": team.role_of(actor) if actor is not None else "member",
+                "member_count": team.member_count(access.tenant_of(actor)),
+                "can_manage": bool(actor is not None and team.can_manage(actor)),
+            }
+        ]
+    )
+
+
+def console_base(request: Request) -> str:
+    """Where a copied invitation link should point: this deployment's own console."""
+    configured = os.environ.get("OWNRAG_CONSOLE_URL", "").strip()
+    if configured:
+        return configured
+    origin = (request.headers.get("origin") or "").strip()
+    if origin:
+        return origin
+    return "http://localhost:5173"
 
 
 @app.get("/api/v1/tenants/{tenant_id}/users")
 async def tenant_users(tenant_id: str):
-    rows = q("SELECT * FROM user ORDER BY create_time")
+    return ok(team.members(tenant_id))
+
+
+@app.patch("/api/v1/tenants/{tenant_id}/users/{user_id}")
+async def update_tenant_user(request: Request, tenant_id: str, user_id: str):
+    actor = auth.user_for_token(getattr(request.state, "token", ""))
+    if actor is None:
+        return fail("Authentication required", 401)
+    payload = await body(request)
+    data, error = team.change_role(actor, tenant_id, user_id, str(payload.get("role") or ""))
+    if error:
+        return fail(error, 100)
+    return ok(data)
+
+
+@app.delete("/api/v1/tenants/{tenant_id}/users/{user_id}")
+async def delete_tenant_user(request: Request, tenant_id: str, user_id: str):
+    actor = auth.user_for_token(getattr(request.state, "token", ""))
+    if actor is None:
+        return fail("Authentication required", 401)
+    removed, error = team.remove_member(actor, tenant_id, user_id)
+    if error:
+        return fail(error, 100)
+    return ok(removed)
+
+
+@app.get("/api/v1/tenants/{tenant_id}/invitations")
+async def list_invitations(request: Request, tenant_id: str):
+    actor = auth.user_for_token(getattr(request.state, "token", ""))
+    if actor is None:
+        return fail("Authentication required", 401)
+    if not team.can_manage(actor):
+        return fail("You do not have permission to view invitations", 403)
+    return ok(team.invites(tenant_id))
+
+
+@app.post("/api/v1/tenants/{tenant_id}/invitations")
+async def create_invitation(request: Request, tenant_id: str):
+    actor = auth.user_for_token(getattr(request.state, "token", ""))
+    if actor is None:
+        return fail("Authentication required", 401)
+    payload = await body(request)
+    invite, error = team.create_invite(
+        actor,
+        tenant_id,
+        str(payload.get("email") or ""),
+        str(payload.get("role") or "member"),
+        console_base(request),
+    )
+    if error:
+        return fail(error, 100)
+    return ok(invite)
+
+
+@app.post("/api/v1/tenants/{tenant_id}/invitations/{invite_id}/resend")
+async def resend_invitation(request: Request, tenant_id: str, invite_id: str):
+    actor = auth.user_for_token(getattr(request.state, "token", ""))
+    if actor is None:
+        return fail("Authentication required", 401)
+    invite, error = team.resend_invite(actor, tenant_id, invite_id, console_base(request))
+    if error:
+        return fail(error, 100)
+    return ok(invite)
+
+
+@app.delete("/api/v1/tenants/{tenant_id}/invitations/{invite_id}")
+async def delete_invitation(request: Request, tenant_id: str, invite_id: str):
+    actor = auth.user_for_token(getattr(request.state, "token", ""))
+    if actor is None:
+        return fail("Authentication required", 401)
+    revoked, error = team.revoke_invite(actor, tenant_id, invite_id)
+    if error:
+        return fail(error, 100)
+    return ok(revoked)
+
+
+@app.get("/api/v1/invitations/{token}")
+async def invitation_info(token: str):
+    """Public: what the holder of a link may know before they have an account."""
+    row = team.invite_for_token(token)
+    if row is None:
+        return fail("This invitation link is not valid any more", 100)
+    return ok(team.describe_invite(row))
+
+
+@app.post("/api/v1/invitations/{token}/accept")
+async def accept_invitation(request: Request, token: str):
+    payload = await body(request)
+    user_row, error = team.accept_invite(token, str(payload.get("password") or ""), str(payload.get("nickname") or ""))
+    if error:
+        return fail(error, 100)
+    auth.audit("login_ok", user_row["email"], auth.client_ip(request), "via invitation")
+    session = auth.issue_token(user_row, f"session {user_row['email']}")
     return ok(
-        [
-            {
-                "user_id": r["id"],
-                "email": r["email"],
-                "nickname": r["nickname"],
-                "role": "owner" if r["is_admin"] else "member",
-                "status": "active",
-                "create_time": r["create_time"],
-            }
-            for r in rows
-        ]
+        {
+            "id": user_row["id"],
+            "email": user_row["email"],
+            "nickname": user_row["nickname"],
+            "role": team.role_of(user_row),
+            "tenant_id": user_row["tenant_id"],
+            "access_token": session,
+            "token": session,
+        }
     )
 
 
@@ -541,8 +804,11 @@ def _mask_token(value: str) -> str:
 
 
 @app.get("/api/v1/system/tokens")
-async def system_tokens():
-    rows = q("SELECT * FROM api_token WHERE name NOT LIKE 'session %' ORDER BY create_time")
+async def system_tokens(request: Request):
+    rows = access.in_workspace(
+        actor_of(request),
+        q("SELECT * FROM api_token WHERE name NOT LIKE 'session %' ORDER BY create_time"),
+    )
     return ok(
         [
             {
@@ -564,8 +830,19 @@ async def system_token_create(request: Request):
     payload = await body(request)
     token = {"token": new_id("ownrag").replace("ownrag_", "ownrag-"), "name": str(payload.get("name") or "new-token"), "create_time": now_ms()}
     x(
-        "INSERT INTO api_token (id, tenant_id, token, name, create_time, last_used) VALUES (?,?,?,?,?,?)",
-        (new_id("tok"), TENANT_ID, token["token"], token["name"], token["create_time"], 0),
+        "INSERT INTO api_token (id, tenant_id, token, name, create_time, last_used, user_id)"
+        " VALUES (?,?,?,?,?,?,?)",
+        (
+            new_id("tok"),
+            access.tenant_of(actor_of(request)),
+            token["token"],
+            token["name"],
+            token["create_time"],
+            0,
+            # A key minted from the console is minted by somebody. Leaving it unowned made it
+            # indistinguishable from the legacy keys the engine claims at startup for the owner.
+            str((actor_of(request) or {})["id"]) if actor_of(request) else None,
+        ),
     )
     token["create_date"] = _date(token["create_time"])[:10]
     return ok(token)
@@ -598,6 +875,10 @@ async def datasets_list(request: Request):
     page, size = paging(request)
     keyword = str(request.query_params.get("keyword") or request.query_params.get("name") or "").lower()
     rows = q("SELECT * FROM dataset ORDER BY create_time DESC")
+    # A member sees their own knowledge bases (and any marked for the team); a manager sees the
+    # workspace. Filtering here, not in SQL, keeps the rule readable and in one place.
+    actor = actor_of(request)
+    rows = [r for r in rows if access.can_see_dataset(actor, r)]
     items = [dataset_dict(r) for r in rows]
     if keyword:
         items = [d for d in items if keyword in d["name"].lower() or keyword in (d["description"] or "").lower()]
@@ -608,6 +889,8 @@ async def datasets_list(request: Request):
 @app.post("/api/v1/datasets")
 async def dataset_create(request: Request):
     payload = await body(request)
+    actor = actor_of(request)
+    created_by = (actor["email"] if actor is not None else "") or OWNER_EMAIL
     name = str(payload.get("name") or "").strip()
     if not name:
         return fail("A knowledge base needs a name", 100)
@@ -620,7 +903,7 @@ async def dataset_create(request: Request):
         " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             ds_id,
-            TENANT_ID,
+            access.tenant_of(actor_of(request)),
             name,
             str(payload.get("description") or ""),
             payload.get("avatar"),
@@ -633,7 +916,10 @@ async def dataset_create(request: Request):
             int(payload.get("top_k") or 1024),
             payload.get("rerank_model"),
             str(payload.get("permission") or "me"),
-            OWNER_EMAIL,
+            # Attribution decides who finds this knowledge base again, so it is the caller's
+            # identity, not the owner's. A machine key has no user and acts for the workspace, so
+            # its work stays the owner's.
+            str(created_by),
             now_ms(),
             now_ms(),
             jdumps(payload.get("tags") or []),
@@ -651,7 +937,8 @@ async def dataset_create(request: Request):
 @app.delete("/api/v1/datasets")
 async def datasets_delete(request: Request):
     payload = await body(request)
-    ids = payload.get("ids") or payload.get("dataset_ids") or []
+    # A member may only delete what they own; a manager keeps the whole list.
+    ids = access.reachable_dataset_ids(actor_of(request), payload.get("ids") or payload.get("dataset_ids") or [])
     for ds_id in ids:
         x("DELETE FROM chunk WHERE dataset_id = ?", (ds_id,))
         x("DELETE FROM token_index WHERE dataset_id = ?", (ds_id,))
@@ -662,9 +949,12 @@ async def datasets_delete(request: Request):
 
 
 @app.get("/api/v1/datasets/tags/aggregation")
-async def tags_aggregation():
+async def tags_aggregation(request: Request):
     counts: dict[str, int] = {}
-    for row in q("SELECT tags FROM dataset"):
+    allowed = access.visible_dataset_ids(actor_of(request))
+    for row in q("SELECT id, tags FROM dataset"):
+        if allowed is not None and row["id"] not in allowed:
+            continue
         for tag in _list(row["tags"]):
             counts[tag] = counts.get(tag, 0) + 1
     return ok(counts)
@@ -1137,10 +1427,14 @@ async def documents_ingest(request: Request):
     ids = payload.get("document_ids") or payload.get("ids") or []
     if not ids:
         return fail("No documents selected", 100)
+    allowed = access.visible_dataset_ids(actor_of(request))
     queued = 0
+    # Parsing someone else's document is the same leak as reading it.
     for doc_id in ids:
-        row = one("SELECT id FROM document WHERE id = ?", (doc_id,))
+        row = one("SELECT id, dataset_id FROM document WHERE id = ?", (doc_id,))
         if not row:
+            continue
+        if allowed is not None and row["dataset_id"] not in allowed:
             continue
         x(
             "UPDATE document SET run = 'RUNNING', progress = 0.01, progress_msg = 'Queued for parsing',"
@@ -1156,6 +1450,9 @@ async def documents_ingest(request: Request):
 async def documents_all(request: Request):
     page, size = paging(request, 100)
     rows = q("SELECT * FROM document ORDER BY create_time DESC")
+    allowed = access.visible_dataset_ids(actor_of(request))
+    if allowed is not None:
+        rows = [r for r in rows if r["dataset_id"] in allowed]
     items = [document_dict(r) for r in rows]
     window, total = spread(items, page, size)
     return ok(window, total)
@@ -1169,19 +1466,41 @@ async def thumbnails():
 # --------------------------------------------------------------------------- retrieval
 
 
+def scoped_search_payload(request: Request, payload: dict) -> dict:
+    """Drop knowledge bases this caller may not read, so retrieval cannot cross accounts.
+
+    A request that names nothing keeps meaning "nothing": `retrieval.search` returns an empty result
+    for an empty scope, and filling the scope in here would quietly widen that contract. Only ids the
+    caller may not reach are removed.
+    """
+    allowed = access.visible_dataset_ids(actor_of(request))
+    if allowed is None:
+        return payload
+    narrowed = dict(payload)
+    keys = [k for k in ("dataset_ids", "kb_ids", "dataset_id") if payload.get(k)]
+    for key in keys:
+        value = payload[key]
+        if isinstance(value, list):
+            narrowed[key] = [d for d in value if str(d) in allowed]
+        else:
+            narrowed[key] = value if str(value) in allowed else ""
+    return narrowed
+
+
 @app.post("/api/v1/datasets/search")
 async def datasets_search(request: Request):
-    return ok(retrieval.search(await body(request)))
+    return ok(retrieval.search(scoped_search_payload(request, await body(request))))
 
 
 @app.post("/api/v1/searchbots/retrieval_test")
 async def searchbots_retrieval(request: Request):
-    return ok(retrieval.search(await body(request)))
+    return ok(retrieval.search(scoped_search_payload(request, await body(request))))
 
 
 @app.post("/api/v1/searchbots/ask")
 async def searchbots_ask(request: Request):
-    payload = await body(request)
+    # Ask names its knowledge bases in the body too, so the same narrowing applies here.
+    payload = scoped_search_payload(request, await body(request))
     frames = stream_answer(payload)
     return StreamingResponse(iter(frames), media_type="text/event-stream")
 
@@ -1223,7 +1542,7 @@ def _seed_assistant() -> None:
             "Knowledge assistant",
             "Grounded answers over every knowledge base on this engine.",
             jdumps(ds_ids),
-            jdumps({"model_name": model_mode()["generation"], "temperature": 0.2, "top_p": 0.8, "max_tokens": 2048}),
+            jdumps({"model_name": model_mode(TENANT_ID)["generation"], "temperature": 0.2, "top_p": 0.8, "max_tokens": 2048}),
             jdumps({"similarity_threshold": 0.2, "keywords_similarity_weight": 0.7, "top_n": 6, "top_k": 1024, "show_quote": True}),
             0.2,
             0.3,
@@ -1239,6 +1558,10 @@ async def chats_list(request: Request):
     _seed_assistant()
     page, size = paging(request)
     rows = q("SELECT * FROM chat ORDER BY create_time")
+    # Assistants predate ownership: a blank `created_by` belongs to nobody, so only managers see it.
+    # That is why adding the column needed no data backfill.
+    actor = actor_of(request)
+    rows = [r for r in rows if access.can_see_chat(actor, r)]
     items = [assistant_dict(r) for r in rows]
     window, total = spread(items, page, size)
     return ok(window, total)
@@ -1250,15 +1573,18 @@ async def chat_create(request: Request):
     chat_id = new_id("chat")
     x(
         "INSERT INTO chat (id, tenant_id, name, description, dataset_ids, llm, prompt,"
-        " similarity_threshold, vector_similarity_weight, top_k, create_time, update_time)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        " similarity_threshold, vector_similarity_weight, top_k, create_time, update_time, created_by)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             chat_id,
-            TENANT_ID,
+            access.tenant_of(actor_of(request)),
             str(payload.get("name") or "New assistant"),
             str(payload.get("description") or ""),
-            jdumps(payload.get("dataset_ids") or payload.get("kb_ids") or []),
-            jdumps(payload.get("llm") or {"model_name": model_mode()["generation"], "temperature": 0.2}),
+            jdumps(access.reachable_dataset_ids(actor_of(request), payload.get("dataset_ids") or payload.get("kb_ids") or [])),
+            jdumps(
+                payload.get("llm")
+                or {"model_name": model_mode(access.tenant_of(actor_of(request)))["generation"], "temperature": 0.2}
+            ),
             jdumps(
                 payload.get("prompt")
                 or {"similarity_threshold": 0.2, "keywords_similarity_weight": 0.7, "top_n": 6, "top_k": 1024, "show_quote": True}
@@ -1268,6 +1594,7 @@ async def chat_create(request: Request):
             int(payload.get("top_k") or 6),
             now_ms(),
             now_ms(),
+            str((actor_of(request)["email"] if actor_of(request) is not None else "")),
         ),
     )
     return ok(assistant_dict(one("SELECT * FROM chat WHERE id = ?", (chat_id,))))
@@ -1417,9 +1744,17 @@ async def chat_completions(request: Request):
     payload = await body(request)
     chat_id = str(payload.get("chat_id") or payload.get("assistant_id") or "")
     assistant = one("SELECT * FROM chat WHERE id = ?", (chat_id,)) if chat_id else None
+    # The assistant is named in the body, not the path, so the path guard cannot see it. Without
+    # this check a member naming another account's assistant received its answers and citations.
+    if assistant is not None and not access.can_see_chat(actor_of(request), assistant):
+        return fail("This assistant belongs to another account", 403)
     if assistant is None:
         _seed_assistant()
-        assistant = one("SELECT * FROM chat ORDER BY create_time LIMIT 1")
+        # Fall back to an assistant this caller may actually use — never another account's.
+        usable = [r for r in q("SELECT * FROM chat ORDER BY create_time") if access.can_see_chat(actor_of(request), r)]
+        if not usable:
+            return fail("This account has no assistant yet — create one first", 102)
+        assistant = usable[0]
 
     session_id = str(payload.get("session_id") or "")
     if not session_id or not one("SELECT id FROM session WHERE id = ?", (session_id,)):
@@ -1431,7 +1766,11 @@ async def chat_completions(request: Request):
 
     question = str(payload.get("question") or "")
     prompt_config = jloads(assistant["prompt"], {})
-    datasets = _live_datasets(payload.get("dataset_ids") or jloads(assistant["dataset_ids"], []))
+    # Only knowledge bases this caller may read: an assistant must not carry another account's ids
+    # into retrieval, whether they arrived in the request or in the assistant's own configuration.
+    datasets = access.reachable_dataset_ids(
+        actor_of(request), _live_datasets(payload.get("dataset_ids") or jloads(assistant["dataset_ids"], []))
+    )
     retrieval_payload = {
         "dataset_ids": datasets,
         "question": question,
@@ -1473,8 +1812,10 @@ async def chat_completions(request: Request):
             **retrieval_payload,
             "prompt": llm.get("system_prompt") or "",
             "temperature": llm.get("temperature", 0.3),
-            # The model this assistant was set to — the answer comes from it when it is enabled.
+            # The model this assistant pinned. If it is not usable in this workspace the engine's own
+            # model answers instead, so a stale pin cannot route the answer through someone else's key.
             "model": str(llm.get("model_name") or ""),
+            "tenant_id": str(assistant["tenant_id"] or ""),
         }
     )
     # Persist the assistant turn: the frames carry the text; concatenate them back for storage.
@@ -1613,9 +1954,9 @@ def _seed_agents() -> None:
 
 
 @app.get("/api/v1/agents")
-async def agents_list():
+async def agents_list(request: Request):
     _seed_agents()
-    rows = q("SELECT * FROM agent ORDER BY update_time DESC")
+    rows = access.in_workspace(actor_of(request), q("SELECT * FROM agent ORDER BY update_time DESC"))
     return ok([agent_dict(r) for r in rows], len(rows))
 
 
@@ -1654,7 +1995,7 @@ async def agent_create(request: Request):
         " create_time, update_time) VALUES (?,?,?,?,?,?,?,?,?,?)",
         (
             agent_id,
-            TENANT_ID,
+            access.tenant_of(actor_of(request)),
             title,
             str(payload.get("description") or ""),
             jdumps(dsl),
@@ -1784,7 +2125,8 @@ async def agent_completions(request: Request):
                 datasets.extend(str(d) for d in form[key] if d)
         if node.get("type") == "generate" and form.get("prompt"):
             prompt = str(form["prompt"])
-    datasets = _live_datasets(datasets)
+    # The agent graph names its knowledge bases in its DSL, so the caller's reach is applied here too.
+    datasets = access.reachable_dataset_ids(actor_of(request), _live_datasets(datasets))
 
     question = str(payload.get("question") or payload.get("query") or "")
     frames = stream_answer(
@@ -1795,6 +2137,7 @@ async def agent_completions(request: Request):
             "top_k": int(payload.get("top_k") or 6),
             "similarity_threshold": 0.2,
             "vector_similarity_weight": 0.3,
+            "tenant_id": str(row["tenant_id"] or ""),
         }
     )
     answer = _answer_from_frames(frames)
@@ -1847,6 +2190,8 @@ def _provider_payload(row) -> dict:
         "base_url": row["base_url"] or "",
         "origin": row["origin"] if "origin" in row.keys() else "console",
         "has_api_key": bool(row["api_key"]),
+        # The console hides the remove action on this rather than hardcoding the engine's provider name.
+        "removable": row["name"] != core.BUILTIN_PROVIDER,
         "instances": [
             {
                 "id": row["id"],
@@ -1872,10 +2217,60 @@ def _provider_payload(row) -> dict:
     }
 
 
+def _provider_row(name: str, actor: Any) -> dict | None:
+    """The provider this caller may act on: their workspace's own, or the engine's built-in.
+
+    Every route in this family resolved its provider by name alone. Names are unique engine-wide while a
+    provider now belongs to a workspace, so a manager could read, edit, disconnect or delete another
+    workspace's provider — and a delete by name would have taken both rows if two workspaces ever used the
+    same name. A delete endpoint was reachable over the API the whole time; this is what made it safe to
+    put a button on.
+    """
+    row = one("SELECT * FROM provider WHERE name = ?", (name,))
+    if not row:
+        return None
+    if str(row["name"]) == core.BUILTIN_PROVIDER:
+        return row  # in-process, and shown to every workspace because nothing about it is billed
+    if str(row["tenant_id"] or "") != access.tenant_of(actor):
+        return None
+    return row
+
+
+def _repin_assistants(tenant: str = "") -> int:
+    """Re-resolve assistants whose stored pin names a model their workspace cannot use.
+
+    An assistant's stored `model_name` is a pin: it decides who answers. A pin naming a model the workspace
+    cannot use answers nothing, so it is re-resolved to one the workspace can use. `tenant` limits the pass
+    to one workspace, which is what removing a provider needs — no chat may keep pointing at a provider
+    that is gone.
+    """
+    where, args = (" WHERE tenant_id = ?", (tenant,)) if tenant else ("", ())
+    repinned = 0
+    for row in q("SELECT id, tenant_id, llm FROM chat" + where, args):
+        config = jloads(row["llm"], {})
+        pinned = str(config.get("model_name") or "")
+        if not pinned:
+            continue
+        resolved = core.resolve_llm(pinned, str(row["tenant_id"] or ""))
+        label = resolved["mode"] if resolved["mode"] != "extractive" else "extractive-built-in"
+        if label != pinned:
+            config["model_name"] = label
+            x("UPDATE chat SET llm = ? WHERE id = ?", (jdumps(config), row["id"]))
+            repinned += 1
+    return repinned
+
+
 @app.get("/api/v1/providers")
 async def providers_list(request: Request):
     _seed_providers()
-    rows = q("SELECT * FROM provider ORDER BY create_time")
+    actor = actor_of(request)
+    rows = access.in_workspace(actor, q("SELECT * FROM provider ORDER BY create_time"))
+    if not rows:
+        # One model configuration serves every workspace; a workspace with nothing of its own still has
+        # that model, so it is shown rather than an empty catalogue. `provider.name` is unique engine-wide,
+        # so duplicating the row per workspace would collide and a per-workspace row would overstate what
+        # the engine actually does.
+        rows = [r for r in q("SELECT * FROM provider") if str(r["name"]) == "ownrag-local"]
     return ok([_provider_payload(r) for r in rows])
 
 
@@ -1940,21 +2335,21 @@ async def provider_create(request: Request):
     x(
         "INSERT INTO provider (id, tenant_id, name, label, kind, base_url, api_key, status, create_time, origin)"
         " VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (new_id("prov"), TENANT_ID, name, str(payload.get("label") or name.title()), "llm", "", "", "added", now_ms(), origin),
+        (new_id("prov"), access.tenant_of(actor_of(request)), name, str(payload.get("label") or name.title()), "llm", "", "", "added", now_ms(), origin),
     )
     return ok(True)
 
 
 @app.get("/api/v1/providers/{provider}/instances")
-async def provider_instances(provider: str):
-    row = one("SELECT * FROM provider WHERE name = ?", (provider,))
+async def provider_instances(provider: str, request: Request):
+    row = _provider_row(provider, actor_of(request))
     return ok(_provider_payload(row)["instances"] if row else [])
 
 
 @app.post("/api/v1/providers/{provider}/instances")
 async def provider_instance_create(provider: str, request: Request):
     payload = await body(request)
-    row = one("SELECT * FROM provider WHERE name = ?", (provider,))
+    row = _provider_row(provider, actor_of(request))
     if not row:
         return fail("Provider not found", 102)
     registered: list[str] = []
@@ -1970,8 +2365,8 @@ async def provider_instance_create(provider: str, request: Request):
 
 
 @app.get("/api/v1/providers/{provider}/instances/{instance}")
-async def provider_instance(provider: str, instance: str):
-    row = one("SELECT * FROM provider WHERE name = ?", (provider,))
+async def provider_instance(provider: str, instance: str, request: Request):
+    row = _provider_row(provider, actor_of(request))
     if not row:
         return fail("Provider not found", 102)
     payload = _provider_payload(row)
@@ -1985,7 +2380,7 @@ async def provider_instance(provider: str, instance: str):
 @app.patch("/api/v1/providers/{provider}/instances/{instance}")
 async def provider_instance_update(provider: str, instance: str, request: Request):
     payload = await body(request)
-    row = one("SELECT * FROM provider WHERE name = ?", (provider,))
+    row = _provider_row(provider, actor_of(request))
     if not row:
         return fail("Provider not found", 102)
     sets, args = [], []
@@ -2005,10 +2400,10 @@ async def provider_instance_update(provider: str, instance: str, request: Reques
 
 
 @app.delete("/api/v1/providers/{provider}/instances/{instance}")
-async def provider_instance_delete(provider: str, instance: str):
+async def provider_instance_delete(provider: str, instance: str, request: Request):
     """Disconnect: drop the models and the credentials, so the provider stops being selected for
     answers instead of lingering as a half-configured entry."""
-    row = one("SELECT * FROM provider WHERE name = ?", (provider,))
+    row = _provider_row(provider, actor_of(request))
     if row:
         x("DELETE FROM provider_model WHERE provider_id = ?", (row["id"],))
         x(
@@ -2019,19 +2414,29 @@ async def provider_instance_delete(provider: str, instance: str):
 
 
 @app.delete("/api/v1/providers/{provider}")
-async def provider_delete(provider: str):
-    """Remove a provider entirely — without this, a name typed once is permanent."""
-    row = one("SELECT * FROM provider WHERE name = ?", (provider,))
+async def provider_delete(provider: str, request: Request):
+    """Remove a provider and the models it served — without this, a name typed once is permanent.
+
+    Removing it also re-resolves the assistants pinned to a model it served: a chat must not keep pointing
+    at a provider that is gone, and the console prints that pin in its header.
+    """
+    if provider == core.BUILTIN_PROVIDER:
+        return fail("The engine's own model cannot be removed — it needs no key and cannot fail", 403)
+    actor = actor_of(request)
+    row = _provider_row(provider, actor)
     if not row:
         return fail("Provider not found", 102)
+    models = one("SELECT COUNT(*) AS n FROM provider_model WHERE provider_id = ?", (row["id"],))["n"]
     x("DELETE FROM provider_model WHERE provider_id = ?", (row["id"],))
     x("DELETE FROM provider WHERE id = ?", (row["id"],))
-    return ok(True)
+    repinned = _repin_assistants(str(row["tenant_id"] or ""))
+    print(f"[ownrag-engine] providers: removed {provider} ({models} model(s)), re-pinned {repinned} assistant(s)")
+    return ok({"provider": provider, "models_removed": models, "assistants_repinned": repinned})
 
 
 @app.get("/api/v1/providers/{provider}/connection")
-async def provider_connection(provider: str):
-    row = one("SELECT * FROM provider WHERE name = ?", (provider,))
+async def provider_connection(provider: str, request: Request):
+    row = _provider_row(provider, actor_of(request))
     if not row:
         return fail("Provider not found", 102)
     if provider == "ownrag-local":
@@ -2067,7 +2472,7 @@ async def instance_models_discover(provider: str, instance: str, request: Reques
     Returns both lists so the console can say what is available when nothing was registered.
     """
     payload = await body(request)
-    row = one("SELECT * FROM provider WHERE name = ?", (provider,))
+    row = _provider_row(provider, actor_of(request))
     if not row:
         return fail("Provider not found", 102)
     kinds = payload.get("kinds")
@@ -2078,22 +2483,22 @@ async def instance_models_discover(provider: str, instance: str, request: Reques
 
 
 @app.get("/api/v1/providers/{provider}/models")
-async def provider_models(provider: str):
-    row = one("SELECT * FROM provider WHERE name = ?", (provider,))
+async def provider_models(provider: str, request: Request):
+    row = _provider_row(provider, actor_of(request))
     if not row:
         return fail("Provider not found", 102)
     return ok(_provider_payload(row)["instances"][0]["models"])
 
 
 @app.get("/api/v1/providers/{provider}/instances/{instance}/models")
-async def instance_models(provider: str, instance: str):
-    return await provider_models(provider)
+async def instance_models(provider: str, instance: str, request: Request):
+    return await provider_models(provider, request)
 
 
 @app.post("/api/v1/providers/{provider}/instances/{instance}/models")
 async def instance_model_add(provider: str, instance: str, request: Request):
     payload = await body(request)
-    row = one("SELECT * FROM provider WHERE name = ?", (provider,))
+    row = _provider_row(provider, actor_of(request))
     if not row:
         return fail("Provider not found", 102)
     entries = payload.get("models")
@@ -2115,7 +2520,7 @@ async def instance_model_add(provider: str, instance: str, request: Request):
 @app.patch("/api/v1/providers/{provider}/instances/{instance}/models/{model}")
 async def instance_model_update(provider: str, instance: str, model: str, request: Request):
     payload = await body(request)
-    row = one("SELECT * FROM provider WHERE name = ?", (provider,))
+    row = _provider_row(provider, actor_of(request))
     if not row:
         return fail("Provider not found", 102)
     target = one("SELECT * FROM provider_model WHERE provider_id = ? AND (id = ? OR model = ?)", (row["id"], model, model))
@@ -2143,8 +2548,8 @@ async def instance_model_update(provider: str, instance: str, model: str, reques
 
 
 @app.delete("/api/v1/providers/{provider}/instances/{instance}/models/{model}")
-async def instance_model_delete(provider: str, instance: str, model: str):
-    row = one("SELECT * FROM provider WHERE name = ?", (provider,))
+async def instance_model_delete(provider: str, instance: str, model: str, request: Request):
+    row = _provider_row(provider, actor_of(request))
     if row:
         x("DELETE FROM provider_model WHERE provider_id = ? AND (id = ? OR model = ?)", (row["id"], model, model))
     return ok(True)
@@ -2156,10 +2561,15 @@ async def instance_balance(provider: str, instance: str):
 
 
 @app.get("/api/v1/models")
-async def models_all():
+async def models_all(request: Request):
     _seed_providers()
+    actor = actor_of(request)
+    rows = access.in_workspace(actor, q("SELECT * FROM provider ORDER BY create_time"))
+    if not rows:
+        # Same rule as the provider listing: the engine's own model serves every workspace.
+        rows = [r for r in q("SELECT * FROM provider") if str(r["name"]) == core.BUILTIN_PROVIDER]
     out = []
-    for row in q("SELECT * FROM provider ORDER BY create_time"):
+    for row in rows:
         for instance in _provider_payload(row)["instances"]:
             for model in instance["models"]:
                 out.append({**model, "provider": row["name"], "instance": instance["instance_name"]})
@@ -2167,8 +2577,8 @@ async def models_all():
 
 
 @app.get("/api/v1/models/default")
-async def models_default():
-    kind = model_mode()
+async def models_default(request: Request):
+    kind = model_mode(access.tenant_of(actor_of(request)))
     return ok({"chat": kind["generation"], "embedding": kind["embeddings"], "rerank": kind["rerank"]})
 
 
@@ -2202,8 +2612,9 @@ def _connector_payload(row) -> dict:
 
 
 @app.get("/api/v1/connectors")
-async def connectors_list():
-    return ok([_connector_payload(r) for r in q("SELECT * FROM connector ORDER BY create_time")])
+async def connectors_list(request: Request):
+    rows = access.in_workspace(actor_of(request), q("SELECT * FROM connector ORDER BY create_time"))
+    return ok([_connector_payload(r) for r in rows])
 
 
 @app.post("/api/v1/connectors")
@@ -2217,7 +2628,7 @@ async def connector_create(request: Request):
         " VALUES (?,?,?,?,?,?,?,?,?)",
         (
             conn_id,
-            TENANT_ID,
+            access.tenant_of(actor_of(request)),
             str(payload.get("name") or "New connector"),
             str(payload.get("source_type") or "s3"),
             connectors.stored_config(datasets, settings or {}),
@@ -2237,8 +2648,14 @@ async def connector_sources():
 
 
 @app.get("/api/v1/connectors/sync_logs")
-async def connector_sync_logs():
-    rows = q("SELECT * FROM connector_log ORDER BY create_time DESC LIMIT 100")
+async def connector_sync_logs(request: Request):
+    # The log rows carry no workspace, so they are filtered by the connectors the caller may reach.
+    visible = {str(r["id"]) for r in access.in_workspace(actor_of(request), q("SELECT * FROM connector"))}
+    rows = [
+        r
+        for r in q("SELECT * FROM connector_log ORDER BY create_time DESC LIMIT 200")
+        if str(r["connector_id"] or "") in visible
+    ][:100]
     return ok([{"time": r["create_time"], "message": r["message"], "level": "info", "status": r["status"]} for r in rows])
 
 
@@ -2311,8 +2728,8 @@ async def connector_logs(connector_id: str):
 
 
 @app.get("/api/v1/mcp/servers")
-async def mcp_list():
-    rows = q("SELECT * FROM mcp_server ORDER BY create_time")
+async def mcp_list(request: Request):
+    rows = access.in_workspace(actor_of(request), q("SELECT * FROM mcp_server ORDER BY create_time"))
     return ok(
         [
             {
@@ -2336,7 +2753,7 @@ async def mcp_create(request: Request):
     server_id = new_id("mcp")
     x(
         "INSERT INTO mcp_server (id, tenant_id, name, url, transport, tools, enabled, create_time) VALUES (?,?,?,?,?,?,?,?)",
-        (server_id, TENANT_ID, str(payload.get("name") or "new-server"), str(payload.get("url") or ""), str(payload.get("transport") or "sse"), jdumps([]), 1 if payload.get("enabled", True) else 0, now_ms()),
+        (server_id, access.tenant_of(actor_of(request)), str(payload.get("name") or "new-server"), str(payload.get("url") or ""), str(payload.get("transport") or "sse"), jdumps([]), 1 if payload.get("enabled", True) else 0, now_ms()),
     )
     return ok({"id": server_id, "name": payload.get("name") or "new-server", "url": payload.get("url") or "", "transport": payload.get("transport") or "sse", "enabled": True, "status": "unknown", "tools": []})
 
@@ -2374,8 +2791,8 @@ async def mcp_delete(server_id: str):
 
 
 @app.get("/api/v1/memories")
-async def memories_list():
-    rows = q("SELECT * FROM memory ORDER BY create_time")
+async def memories_list(request: Request):
+    rows = access.in_workspace(actor_of(request), q("SELECT * FROM memory ORDER BY create_time"))
     return ok(
         [
             {
@@ -2399,7 +2816,7 @@ async def memory_create(request: Request):
     x(
         "INSERT INTO memory (id, tenant_id, name, description, config, create_time, update_time)"
         " VALUES (?,?,?,?,?,?,?)",
-        (mem_id, TENANT_ID, str(payload.get("name") or "New memory"), str(payload.get("description") or ""), jdumps({"memory_type": payload.get("memory_type") or "semantic", "storage_type": payload.get("storage_type") or "vector"}), now_ms(), now_ms()),
+        (mem_id, access.tenant_of(actor_of(request)), str(payload.get("name") or "New memory"), str(payload.get("description") or ""), jdumps({"memory_type": payload.get("memory_type") or "semantic", "storage_type": payload.get("storage_type") or "vector"}), now_ms(), now_ms()),
     )
     return ok({"id": mem_id, "name": payload.get("name") or "New memory", "description": payload.get("description") or "", "memory_type": payload.get("memory_type") or "semantic", "message_count": 0, "storage_type": payload.get("storage_type") or "vector", "create_time": now_ms()})
 
@@ -2442,8 +2859,8 @@ async def memory_config(memory_id: str):
 
 
 @app.get("/api/v1/files")
-async def files_list():
-    rows = q("SELECT * FROM file ORDER BY update_time DESC")
+async def files_list(request: Request):
+    rows = access.in_workspace(actor_of(request), q("SELECT * FROM file ORDER BY update_time DESC"))
     return ok(
         [
             {
@@ -2469,7 +2886,7 @@ async def files_upload(request: Request):
     x(
         "INSERT INTO file (id, tenant_id, name, size, type, location, dataset_id, version, create_time, update_time)"
         " VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (file_id, TENANT_ID, str(payload.get("name") or "untitled"), int(payload.get("size") or 0), str(payload.get("type") or "txt"), str(payload.get("location") or ""), payload.get("dataset_id"), 1, now_ms(), now_ms()),
+        (file_id, access.tenant_of(actor_of(request)), str(payload.get("name") or "untitled"), int(payload.get("size") or 0), str(payload.get("type") or "txt"), str(payload.get("location") or ""), payload.get("dataset_id"), 1, now_ms(), now_ms()),
     )
     return ok({"id": file_id, "name": payload.get("name") or "untitled"})
 

@@ -6,17 +6,32 @@
  * selected assistant and session.
  */
 import { useMutation } from '@tanstack/react-query';
-import { MessageSquarePlus, PanelLeft, Plus, Settings, Sparkles } from 'lucide-react';
+import { Check, ChevronDown, Cpu, MessageSquarePlus, PanelLeft, Plus, Settings, Sparkles } from 'lucide-react';
 import * as React from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { api, isDemoMode } from '@/api/client';
 import { streamChat } from '@/api/chat-stream';
 import { endpoints } from '@/api/endpoints';
-import { useAssistants, useAssistant, useCreateAssistant, useCreateSession, useSession } from '@/api/hooks';
+import {
+  useAssistants,
+  useAssistant,
+  useAvailableModels,
+  useCreateAssistant,
+  useCreateSession,
+  useSession,
+  useUpdateAssistant,
+} from '@/api/hooks';
 import { PageHeader } from '@/components/app/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { EmptyState, ErrorState, type ErrorLike } from '@/components/ui/states';
 import { toast } from '@/components/ui/toaster';
 import { AssistantSettings } from '@/pages/chat/assistant-settings';
@@ -414,6 +429,17 @@ export default function ChatPage() {
     );
   }
 
+  const modelsQuery = useAvailableModels();
+  const updateAssistant = useUpdateAssistant();
+  const currentModel = assistant?.llm?.model_name ?? '';
+  const usableModels = modelsQuery.data?.chat ?? [];
+  // The pinned model can be one the workspace cannot use any more — its provider was removed, or its models
+  // were switched off. It stays in the list, marked, so the header never disagrees with the menu.
+  const modelOptions = React.useMemo(
+    () => (currentModel && !usableModels.includes(currentModel) ? [currentModel, ...usableModels] : usableModels),
+    [usableModels, currentModel],
+  );
+
   const streaming = streamState?.status === 'streaming';
 
   return (
@@ -426,9 +452,41 @@ export default function ChatPage() {
         meta={
           assistant ? (
             <>
-              <Badge tone="neutral" size="sm">
-                {assistant.llm?.model_name ?? 'No model set'}
-              </Badge>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" aria-label="Choose the model that answers">
+                    <Cpu />
+                    <span className="font-mono text-2xs">{currentModel || 'No model set'}</span>
+                    <ChevronDown />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-72">
+                  <DropdownMenuLabel>Answers come from</DropdownMenuLabel>
+                  {modelOptions.length ? (
+                    modelOptions.map((option) => {
+                      const usable = usableModels.includes(option);
+                      return (
+                        <DropdownMenuItem
+                          key={option}
+                          icon={option === currentModel ? <Check /> : <Cpu />}
+                          // A switched-off model stays visible but unpickable: the engine would ignore the
+                          // pin and answer with its own model, so the header would name a model that did
+                          // not answer. Switch it on under Models first.
+                          disabled={!usable}
+                          onClick={() =>
+                            chatId && option !== currentModel && updateAssistant.mutate({ id: chatId, body: { llm: { model_name: option } } })
+                          }
+                        >
+                          <span className="font-mono text-xs">{option}</span>
+                          {!usable && <span className="ml-auto text-2xs text-ink-3">switched off</span>}
+                        </DropdownMenuItem>
+                      );
+                    })
+                  ) : (
+                    <DropdownMenuItem disabled>No model is switched on</DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Badge tone="outline" size="sm">
                 {assistant.dataset_ids?.length ?? 0} knowledge base
                 {(assistant.dataset_ids?.length ?? 0) === 1 ? '' : 's'}

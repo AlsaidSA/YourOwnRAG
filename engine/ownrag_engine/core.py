@@ -6,10 +6,10 @@ This is a second, self-contained implementation of the OwnRAG HTTP contract (the
 preserved Go backend uses). It exists so a single machine with no container runtime can run a
 real RAG pipeline: real parsing, real chunking, a real inverted index+vector index, real search.
 
-Upstream's Go/RAGFlow backend remains the production engine; this one is documented as the
+The upstream Go backend remains the production engine; this one is documented as the
 local engine. Nothing here is imported by the backend.
 
-Derived from RAGFlow (https://github.com/infiniflow/ragflow), Apache-2.0.
+Modified for OwnRAG from the upstream Apache-2.0 project; see NOTICE for attribution.
 """
 
 from __future__ import annotations
@@ -182,6 +182,10 @@ KNOWN_BASE_URLS = {
     entry["name"]: entry["base_url"] for entry in PROVIDER_CATALOG if entry["base_url"]
 }
 
+# The provider the engine serves itself. Its models run in-process, so they have no address to call —
+# which is not the same as being unconfigured.
+BUILTIN_PROVIDER = "ownrag-local"
+
 
 def test_provider_names() -> set[str]:
     """Names of providers a test harness registered (`origin = "test"`).
@@ -195,15 +199,19 @@ def test_provider_names() -> set[str]:
         return set()
 
 
-def active_model(kind: str, preferred: str = "") -> dict | None:
+def active_model(kind: str, preferred: str = "", tenant: str = "") -> dict | None:
     """The enabled model this deployment should use for `kind`.
 
-    `preferred` is the model an assistant asked for, in the API's `model@provider` form. It wins
-    when it is enabled and reachable, so choosing a model in the console's chat settings actually
-    decides who answers; otherwise the most recently added enabled model does.
+    `preferred` is the model an assistant pinned, in the API's `model@provider` form. It wins when it is
+    enabled and usable, so choosing a model in the console's chat settings decides who answers. Otherwise
+    the engine's own model answers: a registered provider is used only when an assistant pins one, because
+    registration alone must not capture the chat slot.
+
+    `tenant` is the workspace asking. An external provider belongs to the workspace that added it, so a
+    chat in one workspace can never be answered — and billed — through another workspace's key.
     """
     rows = q(
-        "SELECT pm.model AS model, pm.kind AS kind, p.name AS provider,"
+        "SELECT pm.model AS model, pm.kind AS kind, p.name AS provider, p.tenant_id AS tenant_id,"
         " p.base_url AS base_url, p.api_key AS api_key"
         " FROM provider_model pm JOIN provider p ON p.id = pm.provider_id"
         " WHERE pm.kind = ? AND pm.enabled = 1"
@@ -214,9 +222,16 @@ def active_model(kind: str, preferred: str = "") -> dict | None:
     for row in rows:
         entry = dict(row)
         entry["base_url"] = entry["base_url"] or KNOWN_BASE_URLS.get(str(entry["provider"]).lower(), "")
-        # Without a reachable base there is nothing to call, so the model does not count as configured.
-        if entry["base_url"]:
-            usable.append(entry)
+        # The engine's own provider serves its models in-process: having no address to call is not the
+        # same as not being configured. Requiring one silently disqualified the local model and left the
+        # only registered external provider as the answering model for every chat in every workspace.
+        entry["in_process"] = str(entry["provider"]) == BUILTIN_PROVIDER
+        if not entry["base_url"] and not entry["in_process"]:
+            continue
+        # An external provider serves the workspace that added it.
+        if tenant and not entry["in_process"] and str(entry["tenant_id"] or "") != tenant:
+            continue
+        usable.append(entry)
     if not usable:
         return None
     if preferred:
@@ -236,6 +251,12 @@ def active_model(kind: str, preferred: str = "") -> dict | None:
         test_only = test_provider_names()
         if test_only:
             pool = [entry for entry in usable if str(entry["provider"]) not in test_only]
+        # The engine's own model answers unless an assistant pins a model: it needs no key, no network and
+        # cannot fail. Registering a provider must not silently move every chat onto it — the same hazard
+        # the `origin = "test"` exclusion above exists for, and it just cost every workspace its answers.
+        own = [entry for entry in pool if entry["in_process"]]
+        if own:
+            return own[0]
     return pool[0] if pool else None
 
 
@@ -293,11 +314,13 @@ def discover_models(base_url: str, api_key: str = "", timeout: int = 20) -> list
     return ids
 
 
-def resolve_llm(preferred: str = "") -> dict:
-    """Where answers come from: the model this assistant asked for, else the newest enabled one,
-    else the environment, else the extractive builder. Returns the mode to attribute the answer to."""
-    row = active_model("chat", preferred)
-    if row:
+def resolve_llm(preferred: str = "", tenant: str = "") -> dict:
+    """Where answers come from: the model this assistant pinned, else the engine's own model, else the
+    environment, else the extractive builder. Returns the mode to attribute the answer to."""
+    row = active_model("chat", preferred, tenant)
+    # The engine's own chat model *is* the extractive builder: there is no endpoint to call, and naming it
+    # as the author is what keeps the assistant's stored label honest.
+    if row and not row.get("in_process"):
         return {
             "mode": f"llm:{row['model']}",
             "base_url": row["base_url"],
@@ -319,7 +342,10 @@ def resolve_llm(preferred: str = "") -> dict:
 def resolve_embedding() -> dict:
     """The embedding endpoint to use, or empty values for the built-in lexical vectors."""
     row = active_model("embedding")
-    if row:
+    # The engine's own encoder is the lexical one, in-process. Returning its row would report a remote
+    # "semantic" mode that does not exist, so the in-process case resolves to empty values — which is
+    # exactly what `retrieval.vector_kind`/`embed_texts` test for to pick the local vectors.
+    if row and not row.get("in_process"):
         return {
             "base_url": row["base_url"],
             "api_key": row["api_key"],
@@ -362,6 +388,18 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS tenant (
   id TEXT PRIMARY KEY, name TEXT, create_time INTEGER
 );
+CREATE TABLE IF NOT EXISTS team_invite (
+  id TEXT PRIMARY KEY, tenant_id TEXT, email TEXT, role TEXT DEFAULT 'member',
+  token_hash TEXT UNIQUE, invited_by TEXT, create_time INTEGER, expires_at INTEGER,
+  status TEXT DEFAULT 'pending', accepted_by TEXT, accepted_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_invite_tenant ON team_invite (tenant_id);
+CREATE TABLE IF NOT EXISTS team_invite (
+  id TEXT PRIMARY KEY, tenant_id TEXT, email TEXT, role TEXT DEFAULT 'member',
+  token_hash TEXT UNIQUE, invited_by TEXT, create_time INTEGER, expires_at INTEGER,
+  status TEXT DEFAULT 'pending', accepted_by TEXT, accepted_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_invite_tenant ON team_invite (tenant_id);
 CREATE TABLE IF NOT EXISTS user (
   id TEXT PRIMARY KEY, email TEXT UNIQUE, password TEXT, nickname TEXT, avatar TEXT,
   tenant_id TEXT, is_admin INTEGER DEFAULT 1, language TEXT DEFAULT 'en', create_time INTEGER
@@ -475,16 +513,23 @@ _conn: "sqlite3.Connection | None" = None
 _LOCK = threading.RLock()
 
 
+# How long a write waits for another writer before giving up. A lock held for a moment is a pause,
+# not an error; the default five seconds was short enough that a second connection doing a slow write
+# could fail a request outright.
+BUSY_TIMEOUT_SECONDS = 15.0
+
+
 def connect() -> sqlite3.Connection:
     """One shared connection; FastAPI runs handlers on a threadpool, so allow cross-thread use."""
     global _conn
     if _conn is None:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         FILES_DIR.mkdir(parents=True, exist_ok=True)
-        _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        _conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=BUSY_TIMEOUT_SECONDS)
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.execute("PRAGMA synchronous=NORMAL")
+        _conn.execute(f"PRAGMA busy_timeout={int(BUSY_TIMEOUT_SECONDS * 1000)}")
         _conn.commit()
     return _conn
 
@@ -499,18 +544,29 @@ def one(sql: str, args: tuple = ()) -> sqlite3.Row | None:
     return rows[0] if rows else None
 
 
-def x(sql: str, args: tuple = ()) -> None:
+def _write(run) -> None:
+    """Run one write on the shared connection and leave that connection clean whatever happens.
+
+    A failed write can leave the implicit transaction open; without the rollback the next request
+    inherits a broken transaction, so a single locked write used to take the engine down until it was
+    restarted — every later request, sign-in included, answered 500.
+    """
     with _LOCK:
         conn = connect()
-        conn.execute(sql, args)
-        conn.commit()
+        try:
+            run(conn)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def x(sql: str, args: tuple = ()) -> None:
+    _write(lambda conn: conn.execute(sql, args))
 
 
 def xmany(sql: str, rows: list[tuple]) -> None:
-    with _LOCK:
-        conn = connect()
-        conn.executemany(sql, rows)
-        conn.commit()
+    _write(lambda conn: conn.executemany(sql, rows))
 
 
 def jloads(raw: str | None, fallback):
@@ -534,13 +590,13 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:16]}"
 
 
-def model_mode() -> dict:
+def model_mode(tenant: str = "") -> dict:
     """What is actually wired up, reported to the console instead of quietly pretending.
 
     Resolved per call, so flipping a switch in the console is reflected on the next read rather
     than the next restart."""
     embedding = resolve_embedding()
-    llm = resolve_llm()
+    llm = resolve_llm("", tenant)
     return {
         "embeddings": f"semantic:{embedding['model']}" if embedding["model"] else "lexical-built-in",
         "generation": llm["mode"] if llm["mode"] != "extractive" else "extractive-built-in",
@@ -566,7 +622,13 @@ def tokenize(text: str) -> list[str]:
 # Columns added after the first release. `init_db` applies whatever is missing, so an existing
 # database is upgraded in place instead of crashing the first query that touches a new column.
 MIGRATIONS: list[tuple[str, str, str]] = [
+    # Assistants arrived without an owner, so a blank `created_by` belongs to nobody and only
+    # managers see it. That keeps existing rows working without a data migration.
+    ("chat", "created_by", "TEXT DEFAULT ''"),
     ("dataset", "document_count", "INTEGER DEFAULT 0"),
+    # Roles arrived with workspace invitations. An old row keeps working: `team.role_of` derives a
+    # role from `is_admin` while this column is empty, so the column needs no data migration.
+    ("user", "role", "TEXT DEFAULT 'member'"),
     ("dataset", "chunk_count", "INTEGER DEFAULT 0"),
     ("dataset", "token_count", "INTEGER DEFAULT 0"),
     ("dataset", "pagerank", "INTEGER DEFAULT 0"),
@@ -617,8 +679,9 @@ def init_db() -> None:
         x("INSERT INTO tenant (id, name, create_time) VALUES (?,?,?)", (TENANT_ID, "OwnRAG", now_ms()))
     if not one("SELECT id FROM user WHERE id = ?", (OWNER_ID,)):
         x(
-            "INSERT INTO user (id, email, password, nickname, tenant_id, is_admin, create_time) VALUES (?,?,?,?,?,?,?)",
-            (OWNER_ID, OWNER_EMAIL, _hash(OWNER_PASSWORD), OWNER_EMAIL.split("@")[0], TENANT_ID, 1, now_ms()),
+            "INSERT INTO user (id, email, password, nickname, tenant_id, is_admin, role, create_time)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (OWNER_ID, OWNER_EMAIL, _hash(OWNER_PASSWORD), OWNER_EMAIL.split("@")[0], TENANT_ID, 1, "owner", now_ms()),
         )
     else:
         # Keep the owner row in step with engine/.env: setting (or clearing) OWNRAG_OWNER_PASSWORD
@@ -628,6 +691,12 @@ def init_db() -> None:
         if owner is not None:
             if owner["email"] != OWNER_EMAIL:
                 x("UPDATE user SET email = ? WHERE id = ?", (OWNER_EMAIL, OWNER_ID))
+            # The configured owner is the workspace owner, whatever the row said before roles existed.
+            if (owner["role"] if "role" in owner.keys() else None) != "owner":
+                x("UPDATE user SET role = 'owner', is_admin = 1 WHERE id = ?", (OWNER_ID,))
+            # The configured owner is the workspace owner, whatever the row said before roles existed.
+            if (owner["role"] if "role" in owner.keys() else None) != "owner":
+                x("UPDATE user SET role = 'owner', is_admin = 1 WHERE id = ?", (OWNER_ID,))
             # Keep the owner row in step with .env, comparing hashes rather than the configured
             # password: a legacy plaintext row is re-hashed here so no credential stays readable.
             stored = owner["password"] or ""

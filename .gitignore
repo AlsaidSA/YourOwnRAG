@@ -19,6 +19,8 @@ engine/.venv/
 engine/.pytest_cache/
 engine/__pycache__/
 engine/screenshots/
+# Screenshots a browser test writes beside the engine when it runs from engine/.
+engine/e2e-*.png
 engine/**/*.pyc
 
 # ---- Python ---------------------------------------------------------------

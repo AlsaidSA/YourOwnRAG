@@ -43,6 +43,9 @@ export const router = createBrowserRouter([
       { path: '/', element: lazyPage(() => import('@/pages/home')) },
       { path: '/login', element: lazyPage(() => import('@/pages/login')) },
       { path: '/signup', element: lazyPage(() => import('@/pages/signup')) },
+      // An invitation link is opened by someone who has no account yet, so it lives in the public
+      // shell; the token in the URL is the credential and the engine validates it.
+      { path: '/invite/:token', element: lazyPage(() => import('@/pages/invite')) },
       { path: '*', element: lazyPage(() => import('@/pages/not-found')) },
     ],
   },

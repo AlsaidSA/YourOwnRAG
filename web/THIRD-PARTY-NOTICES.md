@@ -70,6 +70,6 @@ permissive set and carries its own `LICENSE` file inside `node_modules/`.
 
 ## Upstream project
 
-The backend and the preserved console under `legacy/ragflow-web/` are RAGFlow, Apache-2.0,
+The backend and the preserved console under `legacy/upstream-web/` are RAGFlow, Apache-2.0,
 Copyright 2026 The InfiniFlow Authors. See [`NOTICE`](NOTICE) and
 [`DERIVED-WORK.md`](DERIVED-WORK.md) at the repository root.

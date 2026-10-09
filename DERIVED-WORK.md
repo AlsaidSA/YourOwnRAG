@@ -29,12 +29,12 @@ derivative work is in `NOTICE`.
 ## 2. What was moved (the upstream console)
 
 The upstream React console was relocated with `git mv` from `web/` to
-`legacy/ragflow-web/`.
+`legacy/upstream-web/`.
 
 - The move is a **pure rename**: `git diff` for the rename set reports
   **1786 files changed, 0 insertions(+), 0 deletions(-)**. No upstream file
   content was altered in the move.
-- `legacy/ragflow-web/` contains **1786 files** (no `node_modules`; nothing
+- `legacy/upstream-web/` contains **1786 files** (no `node_modules`; nothing
   vendored). Of these, **1510** are front-end code files
   (`.ts`, `.tsx`, `.js`, `.jsx`, `.css`, `.scss`, `.less`, `.html`); the balance
   is assets (`.svg`, `.woff2`, `.png`), config, and JSON.
@@ -50,11 +50,11 @@ The upstream React console was relocated with `git mv` from `web/` to
   ...
   ```
 
-- `legacy/ragflow-web/` is treated as a **frozen upstream snapshot**. It is
+- `legacy/upstream-web/` is treated as a **frozen upstream snapshot**. It is
   referenced for behavior and license compliance only. It is not built, not
   imported by the new console, and must not be edited (see `docs/BRAND-RULES.md`).
 
-Legacy package identity (for the record): `legacy/ragflow-web/package.json`
+Legacy package identity (for the record): `legacy/upstream-web/package.json`
 declares version `1.0.0`, `"private": true`, description
 `"RAGFlow Web Frontend migrated to Vite"`, author `"bill"`.
 
@@ -129,7 +129,7 @@ Backend and tooling trees are unchanged. Measured file counts:
 | `conf/` | 89 | unmodified |
 
 `git status` shows only two kinds of change in the tree: the 1786 staged renames
-under `legacy/ragflow-web/` and the untracked `web/` directory. No tracked
+under `legacy/upstream-web/` and the untracked `web/` directory. No tracked
 backend or tooling file is modified. The HTTP contract the console relies on is
 served by this untouched backend: `conf/service_conf.yaml` sets the API server
 to `http_port: 9380` (line 5) and the admin surface to `http_port: 9381`
@@ -140,15 +140,13 @@ to `http_port: 9380` (line 5) and the admin surface to `http_port: 9381`
 `docs/` previously held 145 upstream files (108 `.md`, 9 `.mdx`, 28 `.json`
 category files). OwnRAG adds two brand-governance documents to it:
 
-- `docs/BRANDING-MAP.md` — upstream-name → OwnRAG-name mapping and where upstream
-  branding still lives.
 - `docs/BRAND-RULES.md` — rules contributors follow when branding the fork.
 
 ## 7. Change classes in one view
 
 | Change | Mechanism | Evidence |
 | --- | --- | --- |
-| `web/` → `legacy/ragflow-web/` | `git mv` (pure rename, 0 content diff) | 1786 renames in `git status`; `git diff` = 0 insertions/deletions |
+| `web/` → `legacy/upstream-web/` | `git mv` (pure rename, 0 content diff) | 1786 renames in `git status`; `git diff` = 0 insertions/deletions |
 | New console `web/` | new, untracked files | 22 files, `ownrag-web` package |
 | Backend `internal/ cmd/ rag/ docker/ sdk/ conf/` | none | absent from `git status` |
 | `LICENSE` | none (stock Apache-2.0) | 201 lines, placeholders intact |
@@ -163,7 +161,7 @@ category files). OwnRAG adds two brand-governance documents to it:
   carry a `Derived from RAGFlow` header.
 - Apache-2.0 §4(c): all upstream copyright, patent, trademark, and attribution
   notices are retained — the 523 per-file InfiniFlow headers in
-  `legacy/ragflow-web/` are untouched.
+  `legacy/upstream-web/` are untouched.
 - Apache-2.0 §4(d): upstream ships no NOTICE file, so no upstream notice text is
   required; `NOTICE` records attribution voluntarily.
 - Apache-2.0 §6: "RAGFlow"/"InfiniFlow" are used only to describe origin; no

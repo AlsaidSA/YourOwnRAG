@@ -10,7 +10,7 @@ Scores are combined the way the upstream contract describes — `vector_similari
 splits the weight between the vector and the term score — and the result carries the
 per-component numbers the console's score meters display.
 
-Derived from RAGFlow (https://github.com/infiniflow/ragflow), Apache-2.0.
+Modified from an upstream Apache-2.0 project; see NOTICE for origin and attribution.
 """
 
 from __future__ import annotations
@@ -271,6 +271,13 @@ def llm_rerank(question: str, chunks: list[dict], llm: dict, keep: int) -> list[
         return chunks[:keep]
     order = [int(n) for n in re.findall(r"\d+", content)]
     ranked = [chunks[i] for i in order if 0 <= i < len(chunks)]
+    if not ranked:
+        # The call came back but ranked nothing — a rejected key answers with a plain error body, which
+        # parses fine and yields an empty list. Then no judgement was made, so the retrieval order stands:
+        # padding to the floor here would silently *narrow* the context a failed rerank was given, which is
+        # backwards. This is also why the agent smoke check used to pass: the narrowed three passages
+        # happened to contain the word it looked for.
+        return chunks[:keep]
     # Trust the ranking. Padding back up to `keep` with passages the model did not choose is exactly
     # how distractors re-enter the context: it ranks the relevant ones, then the empty slots are
     # refilled with what it passed over. Pad only to `floor`, so the context is never starved but

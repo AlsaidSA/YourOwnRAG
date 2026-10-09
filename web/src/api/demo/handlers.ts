@@ -64,6 +64,50 @@ function parseJsonBody(body: unknown): Record<string, unknown> {
 
 const id = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 
+// ---- workspace team -------------------------------------------------------------------------
+// Mutable, and shared by every request: the demo has no server, so these arrays are its memory and
+// the console must see an invitation or a removal reflected as soon as it refreshes.
+interface DemoMember {
+  user_id: string;
+  email: string;
+  nickname: string;
+  role: string;
+  status: string;
+  create_time: number;
+}
+
+interface DemoInvite {
+  id: string;
+  tenant_id: string;
+  email: string;
+  role: string;
+  status: string;
+  create_time: number;
+  expires_at: number;
+  invited_by?: string;
+  token?: string;
+  invite_url?: string;
+}
+
+const demoMembers: DemoMember[] = [
+  { user_id: 'u_01', email: 'dnn@ownrag.local', nickname: 'dnn', role: 'owner', status: 'active', create_time: Date.now() - 86_400_000 * 120 },
+  { user_id: 'u_02', email: 'a.alharbi@ownrag.local', nickname: 'a.alharbi', role: 'admin', status: 'active', create_time: Date.now() - 86_400_000 * 61 },
+  { user_id: 'u_03', email: 's.otaibi@ownrag.local', nickname: 's.otaibi', role: 'member', status: 'active', create_time: Date.now() - 86_400_000 * 40 },
+];
+
+const demoInvitations: DemoInvite[] = [
+  {
+    id: 'inv_01',
+    tenant_id: 'tenant_ownrag',
+    email: 'audit@ownrag.local',
+    role: 'member',
+    status: 'pending',
+    create_time: Date.now() - 86_400_000 * 3,
+    expires_at: Date.now() + 86_400_000 * 4,
+    invited_by: 'u_01',
+  },
+];
+
 /** Retrieval: rank seeded chunks for the query, deterministically. */
 function runRetrieval(body: Record<string, unknown>) {
   const datasetIds = (body.dataset_ids as string[] | undefined) ?? [];
@@ -184,7 +228,13 @@ export function resolveDemo(
   if (m === 'GET' && path === '/api/v1/system/version') return ok(demoSystem);
   if (m === 'GET' && path === '/api/v1/tenants') {
     return ok([
-      { tenant_id: 'tenant_ownrag', name: "dnn's workspace", role: 'owner', member_count: 4 },
+      {
+        tenant_id: 'tenant_ownrag',
+        name: "dnn's workspace",
+        role: 'owner',
+        member_count: demoMembers.length,
+        can_manage: true,
+      },
     ]);
   }
 
@@ -807,14 +857,108 @@ export function resolveDemo(
       return ok(true);
     }
   }
+  // A single member: the role, or the removal. The engine refuses these for the owner and for
+  // anyone without authority; the demo mirrors the same answers so the UI path is exercised.
+  const tenantMemberMatch = path.match(/^\/api\/v1\/tenants\/([^/]+)\/users\/([^/]+)$/);
+  if (tenantMemberMatch) {
+    const member = demoMembers.find((entry) => entry.user_id === tenantMemberMatch[2]);
+    if (m === 'PATCH' || m === 'PUT') {
+      if (!member) return fail('Member not found');
+      if (member.role === 'owner') return fail("The workspace owner's role cannot be changed");
+      const role = String(b.role ?? 'member');
+      if (role !== 'admin' && role !== 'member') return fail('Choose a role of admin or member');
+      member.role = role;
+      return ok({ user_id: member.user_id, email: member.email, role });
+    }
+    if (m === 'DELETE') {
+      if (!member) return fail('Member not found');
+      if (member.role === 'owner') return fail('The workspace owner cannot be removed');
+      demoMembers.splice(demoMembers.indexOf(member), 1);
+      return ok(true);
+    }
+  }
+
   const tenantUsersMatch = path.match(/^\/api\/v1\/tenants\/([^/]+)\/users$/);
-  if (tenantUsersMatch && m === 'GET') {
-    return ok([
-      { user_id: 'u_01', email: 'dnn@ownrag.local', nickname: 'dnn', role: 'owner', status: 'active', create_time: Date.now() - 86_400_000 * 120 },
-      { user_id: 'u_02', email: 'a.alharbi@ownrag.local', nickname: 'a.alharbi', role: 'admin', status: 'active', create_time: Date.now() - 86_400_000 * 61 },
-      { user_id: 'u_03', email: 's.otaibi@ownrag.local', nickname: 's.otaibi', role: 'member', status: 'active', create_time: Date.now() - 86_400_000 * 40 },
-      { user_id: 'u_04', email: 'audit@ownrag.local', nickname: 'audit', role: 'member', status: 'invited', create_time: Date.now() - 86_400_000 * 3 },
-    ]);
+  if (tenantUsersMatch && m === 'GET') return ok(demoMembers);
+
+  const inviteResendMatch = path.match(/^\/api\/v1\/tenants\/([^/]+)\/invitations\/([^/]+)\/resend$/);
+  if (inviteResendMatch && m === 'POST') {
+    const invite = demoInvitations.find((entry) => entry.id === inviteResendMatch[2]);
+    if (!invite) return fail('Invitation not found');
+    if (invite.status === 'accepted') return fail('That invitation has already been accepted');
+    const token = `demo-${id('token')}`;
+    invite.token = token;
+    invite.invite_url = `http://localhost:5173/invite/${token}`;
+    invite.expires_at = Date.now() + 86_400_000 * 7;
+    invite.status = 'pending';
+    return ok(invite);
+  }
+
+  const inviteMatch = path.match(/^\/api\/v1\/tenants\/([^/]+)\/invitations\/([^/]+)$/);
+  if (inviteMatch && m === 'DELETE') {
+    const invite = demoInvitations.find((entry) => entry.id === inviteMatch[2]);
+    if (!invite) return fail('Invitation not found');
+    invite.status = 'revoked';
+    return ok(true);
+  }
+
+  const invitationsMatch = path.match(/^\/api\/v1\/tenants\/([^/]+)\/invitations$/);
+  if (invitationsMatch) {
+    if (m === 'GET') return ok(demoInvitations);
+    if (m === 'POST') {
+      const email = String(b.email ?? '').trim().toLowerCase();
+      if (!email.includes('@') || email.length < 5) return fail('Enter a valid email address');
+      if (demoMembers.some((entry) => entry.email.toLowerCase() === email)) {
+        return fail('That email already belongs to a member of this workspace');
+      }
+      if (demoInvitations.some((entry) => entry.email.toLowerCase() === email && entry.status === 'pending')) {
+        return fail('That address already has a pending invitation');
+      }
+      const token = `demo-${id('token')}`;
+      const invite: DemoInvite = {
+        id: id('inv'),
+        tenant_id: invitationsMatch[1],
+        email,
+        role: String(b.role ?? 'member'),
+        status: 'pending',
+        create_time: Date.now(),
+        expires_at: Date.now() + 86_400_000 * 7,
+        invited_by: 'u_01',
+        token,
+        invite_url: `http://localhost:5173/invite/${token}`,
+      };
+      demoInvitations.unshift(invite);
+      return ok(invite);
+    }
+  }
+
+  // The public invitation link: no session, the token is the credential — exactly as the engine
+  // serves it, so the accept page can be exercised end to end in demo mode.
+  const acceptInviteMatch = path.match(/^\/api\/v1\/invitations\/([^/]+)\/accept$/);
+  if (acceptInviteMatch && m === 'POST') {
+    const invite = demoInvitations.find((entry) => entry.token === acceptInviteMatch[1]);
+    if (!invite || invite.status !== 'pending') return fail('This invitation link is not valid any more');
+    if (String(b.password ?? '').length < 8) return fail('Use at least 8 characters for the password');
+    invite.status = 'accepted';
+    return ok({
+      email: invite.email,
+      role: invite.role,
+      tenant_id: invite.tenant_id,
+      access_token: 'demo-session-token',
+    });
+  }
+
+  const inviteInfoMatch = path.match(/^\/api\/v1\/invitations\/([^/]+)$/);
+  if (inviteInfoMatch && m === 'GET') {
+    const invite = demoInvitations.find((entry) => entry.token === inviteInfoMatch[1]);
+    if (!invite || invite.status !== 'pending') return fail('This invitation link is not valid any more');
+    return ok({
+      tenant_id: invite.tenant_id,
+      email: invite.email,
+      role: invite.role,
+      expires_at: invite.expires_at,
+      status: invite.status,
+    });
   }
   // Per-model enable/disable on a provider instance.
   const instanceModelMatch = path.match(

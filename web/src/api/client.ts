@@ -1,6 +1,6 @@
 /*
  * Copyright 2026 OwnRAG contributors
- * Derived from RAGFlow (https://github.com/infiniflow/ragflow),
+ * Modified from an upstream Apache-2.0 project; see NOTICE for origin and attribution.
  * Copyright 2026 The InfiniFlow Authors. Licensed under the Apache License, Version 2.0.
  *
  * Transport. One axios instance for the whole console, plus the demo fallback.

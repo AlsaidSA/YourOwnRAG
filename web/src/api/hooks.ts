@@ -564,6 +564,7 @@ export function useDiscoverModels() {
     onSuccess: (data) => {
       client.invalidateQueries({ queryKey: ModelKeys.providers() });
       client.invalidateQueries({ queryKey: ModelKeys.allModels() });
+      client.invalidateQueries({ queryKey: SystemKeys.userModels() });
       const found = data.registered.length;
       toast({
         title: found > 0 ? `Enabled ${found} model${found === 1 ? '' : 's'}` : 'No new chat models found',
@@ -606,6 +607,37 @@ export function useAddInstance() {
     },
     onError: (error: ApiError) =>
       toast({ title: 'Could not connect the provider', description: error.message, variant: 'error' }),
+  });
+}
+
+/**
+ * Remove a provider. The engine deletes its models with it and re-resolves any assistant pinned to one of
+ * them, so the count it returns is worth showing — a removal is not always a no-op for chats.
+ */
+export function useDeleteProvider() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (provider: string) =>
+      api.delete<{ provider: string; models_removed: number; assistants_repinned: number }>(
+        endpoints.providerDelete(provider),
+      ),
+    onSuccess: (data, provider) => {
+      client.invalidateQueries({ queryKey: ModelKeys.providers() });
+      client.invalidateQueries({ queryKey: ModelKeys.allModels() });
+      // The chat header's model menu reads this: a removed provider's models must leave it at once.
+      client.invalidateQueries({ queryKey: SystemKeys.userModels() });
+      toast({
+        title: `Removed ${provider}`,
+        description:
+          `${data.models_removed} model${data.models_removed === 1 ? '' : 's'} deleted` +
+          (data.assistants_repinned
+            ? `, ${data.assistants_repinned} assistant${data.assistants_repinned === 1 ? '' : 's'} moved to the workspace's own model.`
+            : '.'),
+        variant: 'success',
+      });
+    },
+    onError: (error: ApiError) =>
+      toast({ title: 'Could not remove the provider', description: error.message, variant: 'error' }),
   });
 }
 

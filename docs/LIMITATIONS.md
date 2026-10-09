@@ -59,7 +59,7 @@ Consequences worth stating plainly:
 ## What still depends on the upstream UI
 
 The redesign covers the product surfaces named in the brief. The upstream console at
-`legacy/ragflow-web/` is preserved because a handful of deep editors were **not** rewritten in
+`legacy/upstream-web/` is preserved because a handful of deep editors were **not** rewritten in
 this pass, and pretending otherwise would be worse than saying it:
 
 - the chunk-level visual editor with bounding-box highlighting over rendered pages,
@@ -68,7 +68,7 @@ this pass, and pretending otherwise would be worse than saying it:
 - the admin console (users, roles, services, monitoring),
 - chat-channel and bot publishing surfaces.
 
-Those screens exist and work in `legacy/ragflow-web/`; own them from the OwnRAG console by
+Those screens exist and work in `legacy/upstream-web/`; own them from the OwnRAG console by
 linking out, or port them onto the OwnRAG primitives. The API for all of them is preserved, so
 the port is a UI task only.
 
@@ -141,4 +141,4 @@ Renaming functional identifiers was avoided where it would break compatibility: 
 variables, database table names, image names, package/module identifiers, upstream file paths
 and the upstream API's own naming (`datasets` for knowledge bases, `documents`, `parser_id`,
 `chunk_method`, `*_kwd` fields). Those are contract, not branding. See
-[`BRANDING-MAP.md`](BRANDING-MAP.md) for the full inventory of what changed and what did not.
+`NOTICE` for the full inventory of what changed and what did not.

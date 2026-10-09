@@ -1,6 +1,6 @@
 # OwnRAG design system
 
-The console at `web/` is a new product surface built on the preserved RAGFlow API. This
+The console at `web/` is a new product surface built on the preserved upstream API. This
 document is the reasoning behind it: what each rule is for, and what it prevents.
 
 ---
@@ -106,7 +106,7 @@ redrawn logo — `Own` in the interface face, `RAG` in mono — which is what ma
 independent product rather than a re-lettered badge.
 
 Brand rules for contributors: [`BRAND-RULES.md`](BRAND-RULES.md). Naming inventory and
-what was deliberately left unchanged: [`BRANDING-MAP.md`](BRANDING-MAP.md).
+what was deliberately left unchanged: `NOTICE`.
 
 ## 5. Accessibility
 

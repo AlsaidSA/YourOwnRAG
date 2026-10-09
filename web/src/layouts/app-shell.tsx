@@ -13,6 +13,7 @@ import { CommandPalette } from '@/components/app/command-palette';
 import { Sidebar } from '@/components/app/sidebar';
 import { Topbar } from '@/components/app/topbar';
 import { TooltipProvider } from '@/components/ui/controls';
+import { useAuthStore, type SessionUser } from '@/store/auth';
 import { useUiStore } from '@/store/ui';
 
 function useConnectivityProbe() {
@@ -39,8 +40,39 @@ function useConnectivityProbe() {
   }, [demoMode, enterDemoMode]);
 }
 
+/**
+ * Keep the session's identity honest.
+ *
+ * Sign-in stores the address it was given, which carries no role — and the sidebar decides what to offer
+ * from the role, so an owner whose stored identity has no role is indistinguishable from a member and
+ * loses the surfaces they administer. `/users/me` is the engine's answer to "who am I"; asking once per
+ * session also repairs a stored identity written before roles existed.
+ */
+function useIdentity() {
+  const demoMode = useUiStore((state) => state.demoMode);
+  const token = useAuthStore((state) => state.token);
+  const setUser = useAuthStore((state) => state.setUser);
+
+  React.useEffect(() => {
+    if (!token || token === 'demo.session.token' || demoMode) return;
+    let cancelled = false;
+    api
+      .get<SessionUser>(endpoints.userInfo)
+      .then((me) => {
+        // A refusal or an unexpected body leaves the stored identity alone rather than blanking it.
+        if (!cancelled && me && typeof me === 'object' && 'email' in me) setUser(me);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [token, demoMode, setUser]);
+}
+
+
 export function AppShell() {
   useConnectivityProbe();
+  useIdentity();
   const setCommandOpen = useUiStore((state) => state.setCommandOpen);
 
   React.useEffect(() => {

@@ -2,12 +2,14 @@
  * Copyright 2026 OwnRAG contributors — Apache-2.0.
  * The public home: the product page for a visitor, the dashboard for a signed-in operator. One
  * route, decided by session state, so no link in the console has to know which one it is talking to.
+ * The product page is the product-first layout (a real capture of the console in the fold, a
+ * captioned gallery, and an English/Arabic switch); `/ar` opens the same page in Arabic.
  */
 import * as React from 'react';
 import { Navigate } from 'react-router';
 import { useAuthStore } from '@/store/auth';
 
-const LandingPage = React.lazy(() => import('@/pages/landing'));
+const LandingPage = React.lazy(() => import('@/pages/landing-b'));
 
 function LandingFallback() {
   return (

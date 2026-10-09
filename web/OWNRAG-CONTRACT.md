@@ -3,8 +3,8 @@
 Everything a contributor (human or agent) needs to add a screen without inventing a second
 design language. **Read this file before writing any component under `web/src/pages/`.**
 
-OwnRAG's console is a new application that talks to the **preserved RAGFlow API surface**.
-The backend is not modified by console work. See `docs/ARCHITECTURE-OWNRAG.md`.
+OwnRAG's console is a new application that talks to the **preserved upstream API surface**.
+The backend is not modified by console work. See `NOTICE`.
 
 ---
 
@@ -128,8 +128,8 @@ Rules:
 
 | Route | File(s) |
 |---|---|
-| `/` | `pages/overview.tsx` |
-| `/login`, `*` | `pages/login.tsx`, `pages/not-found.tsx` |
+| `/` | `pages/home.tsx` → `pages/landing-b.tsx` for a visitor, redirect to `/overview` for an operator |
+| `/login`, `/signup`, `*` | `pages/login.tsx`, `pages/signup.tsx`, `pages/not-found.tsx` |
 | `/knowledge` | `pages/knowledge/list.tsx` + `pages/knowledge/components/kb-card.tsx`, `create-kb-dialog.tsx` |
 | `/knowledge/:kbId` | `pages/knowledge/detail.tsx` + `pages/knowledge/components/documents-table.tsx`, `kb-settings-form.tsx`, `kb-retrieval-panel.tsx`, `upload-dialog.tsx`, `kb-metadata-panel.tsx` |
 | `/knowledge/:kbId/documents/:docId` | `pages/knowledge/document.tsx` + `pages/knowledge/components/document-viewer.tsx`, `chunk-outline.tsx` |
@@ -137,9 +137,36 @@ Rules:
 | `/chat`, `/chat/:chatId`, `/chat/:chatId/:sessionId` | `pages/chat.tsx` + `pages/chat/*` |
 | `/agents`, `/agents/:agentId` | `pages/agents/list.tsx`, `pages/agents/builder.tsx` + `pages/agents/*` |
 | `/models`, `/data-sources`, `/memory`, `/mcp`, `/settings`, `/developers` | `pages/models.tsx`, `pages/data-sources.tsx`, `pages/memory.tsx`, `pages/mcp.tsx`, `pages/settings.tsx`, `pages/developers.tsx` |
+| `/invite/:token` (public shell) | `pages/invite.tsx` — accepts a workspace invitation; the token in the URL is the credential |
 
 - Default-export the route component. Named sub-components live in the same folder.
 - kebab-case filenames, PascalCase exports, `Column<T>` arrays for tables.
+- Workspace membership lives in Settings → Team: the members and their roles, and the invitations
+  that have been issued. The console hides the controls the engine would refuse; the engine is the
+  authority for roles, invitations and removals (`docs/SECURITY.md`).
+- **A workspace is not a shared folder.** A new signup gets one of its own **and owns it** — the
+  account that creates a workspace is its owner from its first request, so Models, Memory and Developers
+  work for every account rather than only the original one. An invitation is the
+  only way into someone else's. Inside one, the owner and admins see everything and a member sees what
+  it created. Removing a member ends their sessions and moves the account — with the knowledge bases it
+  created — back to a workspace of its own; it does not delete the account. A roster is readable only
+  by its own workspace, and the manager-only surfaces (Models, Memory, Developers) carry `manager: true`
+  in `nav.ts` and are not offered to a member.
+- **Removing a provider is a first-class action**, on the provider card behind a confirm. It deletes the
+  provider and the models it serves, including the stored key, and moves any assistant pinned to one of them
+  back to the workspace's own model. The engine refuses its own in-process provider, and reports that refusal
+  as data (`removable` on the payload) so the console hides the action instead of offering one that fails.
+  A provider can only be read, edited or removed by the workspace that added it.
+- **The model that answers is chosen in the chat tab.** The chat header's model is a menu over the models
+  this workspace may pin — its own providers' chat models and the engine's own, which is listed first because
+  it needs no key and cannot fail. One it cannot use (the provider was removed, or the model was switched
+  off) stays visible and unpickable, so the header never names a model that did not answer. Choosing one
+  writes the pin through `PATCH /chats/{id}`; the list behind it is `GET /users/me/models`, which resolves
+  what the *deployment* is using now as its default and lists everything the workspace *may* choose.
+- **The engine's own model answers unless an assistant pins one.** A registered provider is used when an
+  assistant selects it, never merely because it exists — registering one must not reroute every chat in the
+  deployment. A pinned model is honoured only inside the workspace that owns the provider; anywhere else the
+  workspace's own model answers, so a stale pin cannot route an answer through someone else's key.
 - Import with the `@/` alias, never a long relative path.
 - Every new file starts with:
   `/* Copyright 2026 OwnRAG contributors — Apache-2.0. */`

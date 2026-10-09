@@ -1,9 +1,9 @@
 /*
  * Copyright 2026 OwnRAG contributors
- * Derived from RAGFlow (https://github.com/infiniflow/ragflow),
+ * Modified for OwnRAG from the upstream Apache-2.0 project; see NOTICE.
  * Copyright 2026 The InfiniFlow Authors. Licensed under the Apache License, Version 2.0.
  *
- * Endpoint map. These paths mirror the upstream RAGFlow HTTP contract exactly — the OwnRAG
+ * Endpoint map. These paths mirror the upstream HTTP contract exactly — the OwnRAG
  * console is a new client of the preserved backend, not a new protocol. `/api/v1/*` and `/v1/*`
  * are served by the API server (default :9380); the admin surface lives on :9381.
  */
@@ -25,6 +25,13 @@ export const endpoints = {
   // ---- tenant / team ----
   listTenant: `${restAPIv1}/tenants`,
   tenantUsers: (tenantId: string) => `${restAPIv1}/tenants/${tenantId}/users`,
+  tenantUser: (tenantId: string, userId: string) => `${restAPIv1}/tenants/${tenantId}/users/${userId}`,
+  invitations: (tenantId: string) => `${restAPIv1}/tenants/${tenantId}/invitations`,
+  invitation: (tenantId: string, inviteId: string) => `${restAPIv1}/tenants/${tenantId}/invitations/${inviteId}`,
+  invitationResend: (tenantId: string, inviteId: string) =>
+    `${restAPIv1}/tenants/${tenantId}/invitations/${inviteId}/resend`,
+  invitationInfo: (token: string) => `${restAPIv1}/invitations/${encodeURIComponent(token)}`,
+  invitationAccept: (token: string) => `${restAPIv1}/invitations/${encodeURIComponent(token)}/accept`,
 
   // ---- knowledge bases (upstream resource name: datasets) ----
   kbList: `${restAPIv1}/datasets`,
@@ -120,6 +127,8 @@ export const endpoints = {
   providerInstance: (provider: string, instance: string) =>
     `${restAPIv1}/providers/${provider}/instances/${instance}`,
   providerInstances: (provider: string) => `${restAPIv1}/providers/${provider}/instances`,
+  /** Remove a provider and the models it serves. The engine refuses its own in-process provider. */
+  providerDelete: (provider: string) => `${restAPIv1}/providers/${provider}`,
   providerDiscoverModels: (provider: string, instance: string) =>
     `${restAPIv1}/providers/${provider}/instances/${instance}/models/discover`,
   providerConnection: (provider: string) => `${restAPIv1}/providers/${provider}/connection`,
