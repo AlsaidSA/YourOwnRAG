@@ -4,10 +4,10 @@
 
 ### Your data. Your models. Your RAG.
 
-A self-hosted retrieval platform with configurable chunking, grounded citations,
-fused reranking, and agent workflows — behind one API you control.
+A self-hosted retrieval platform you operate yourself — template-based chunking, grounded
+citations, fused reranking and an agent runtime, behind one API you already own.
 
-Apache-2.0 · See NOTICE for attribution
+Apache-2.0 · see NOTICE for attribution
 
 </div>
 
@@ -34,423 +34,424 @@ Apache-2.0 · See NOTICE for attribution
 
 ## What OwnRAG is
 
-OwnRAG is self-hosted AI knowledge infrastructure for ingesting, indexing,
-and retrieving documents with grounded answers and citations.
+OwnRAG is your own AI knowledge infrastructure. It ingests the documents you already have, indexes
+them with the embedding model you choose, retrieves with the weights you tune, and answers with
+citations back to the exact chunk — all inside your own deployment.
 
-| Component | Description |
+Bring your own:
+
+| | |
 |---|---|
-| **Data** | Files, folders, tickets, emails, archives, and web pages |
-| **Models** | Chat, embedding, and reranking endpoints |
-| **Knowledge bases** | Separate corpora with configurable chunking and retrieval |
-| **Agents** | Versioned workflows with tools and code execution |
-| **Tools** | MCP servers, web search, and code execution |
-| **APIs** | One REST API for the console and external clients |
+| **Data** | Files, folders, tickets, filings, mail archives, crawled pages |
+| **Models** | Chat, embedding, rerank — hosted APIs or your own endpoints |
+| **Knowledge bases** | Separate corpora with their own chunking template, thresholds and access |
+| **Agents** | Retrieval, tools, code and control flow, versioned as a graph |
+| **Tools** | MCP servers and the built-in web search / code executor components |
+| **APIs** | One REST surface that the console itself is built on — nothing is UI-only |
 
-**No model configuration is required.** Without a chat model, OwnRAG still
-indexes and retrieves documents and generates extractive answers with citations.
+**No model configuration is required to run it.** With nothing configured, the engine still parses,
+chunks, indexes and retrieves your documents for real, and answers *extractively* — it assembles the
+answer from the retrieved passages, cites them, and says in the answer that it did so.
 
 ## What this repository is
 
-OwnRAG is a derivative work of an upstream Apache-2.0 RAG platform with a
-redesigned console and a local engine.
+OwnRAG is a derivative work of an upstream Apache-2.0 RAG platform. It keeps the upstream
+the product surface with a new console, a new information architecture and a new design system.
 
+```
+cmd/  internal/  conf/  docker/  rag/            # upstream backend — preserved, unmodified
+engine/                                          # local engine — single machine, no containers
+web/                                             # OwnRAG console — Vite 7 + React 18 + Tailwind v4
+legacy/upstream-web/                              # upstream console, preserved verbatim
+docs/                                            # architecture, design system, branding, security, limitations
+NOTICE · DERIVED-WORK.md · LICENSE               # attribution and licence
+```
 
-
-cmd/ internal/ conf/ docker/ rag/ # Preserved Go backend engine/ # Local Python engine with SQLite web/ # React console legacy/upstream-web/ # Original console, preserved docs/ # Architecture, design, and security NOTICE · DERIVED-WORK.md · LICENSE # Attribution and licence
-
-
-- **Backend:** Original Go services and HTTP routes are preserved.
-- **Console:** `web/` uses the existing API.
-- **Local engine:** `engine/` runs on one machine without Docker or external databases.
-- **Original UI:** `legacy/upstream-web/` preserves upstream files and licence notices.
-
-See `NOTICE`, `DERIVED-WORK.md`, `docs/DESIGN-SYSTEM.md`, and
-`web/OWNRAG-CONTRACT.md`.
+- **The backend is preserved.** The Go services in `internal/` and `cmd/` are untouched, and their
+  HTTP routes keep working. See `NOTICE` and `DERIVED-WORK.md`.
+- **The console is new.** `web/` is a fresh application: its own tokens, primitives, query layer and
+  every screen. It is a client of the same API — it adds no protocol and no server-side bypass.
+  See [`docs/DESIGN-SYSTEM.md`](docs/DESIGN-SYSTEM.md) and
+  [`web/OWNRAG-CONTRACT.md`](web/OWNRAG-CONTRACT.md).
+- **The local engine is new.** `engine/` implements the same HTTP contract on SQLite, so the whole
+  product runs on one machine with no Docker, no MySQL, no Elasticsearch and no object store.
+- **The upstream UI is preserved, not deleted.** `legacy/upstream-web/` keeps every original file,
+  header and licence notice, for reference and for licence compliance.
 
 ## Requirements
 
-| Component | Requirement |
-|---|---|
-| Local engine | Python 3.11+ |
-| Console | Node.js 20.19+ or 22.12+, and npm |
-| Disk | Approximately 500 MB, plus document storage |
-| Operating system | Windows, Linux, or macOS |
-| Preserved backend | Docker and required native dependencies |
+| Component | Needs | Notes |
+|---|---|---|
+| **Local engine** | Python **3.11 or newer** | Tested on CPython 3.11. All dependencies ship as wheels for Windows/macOS/Linux — no compiler, no container, no GPU. |
+| **Console** | Node.js **20.19+ or 22.12+** and npm | That is Vite 7's own requirement. Tested on Node 22. |
+| **Disk** | ~500 MB for the environment, plus your documents | The engine stores one SQLite database and the uploaded files. |
+| **Operating system** | Anywhere Python runs | OCR of *scanned* pages needs Windows (see [Troubleshooting](#troubleshooting)). Everything else is platform-independent. |
+| **Preserved backend** (optional) | Docker, and the native artifacts fetched by `ragflow_deps/download_deps.py` | Only needed if you want the upstream Go engine instead of the local one. |
 
-No API key, GPU, or external database is required for the local engine.
-
-**Note:** OCR for scanned, image-only PDF pages currently requires Windows.
+No API key, no account and no network access are required to install and run OwnRAG. Model endpoints
+are optional and configured afterwards.
 
 ## Installation
 
-Clone the repository:
+```bash
+git clone <your-ownrag-repository-url> ownrag
+cd ownrag
+```
 
+**1. The local engine**
 
+```bash
+cd engine
+python -m venv .venv
 
-git clone <your-ownrag-repository-url> ownrag cd ownrag
+# Windows
+.venv/Scripts/pip install -r requirements.txt
 
+# Linux / macOS
+.venv/bin/pip install -r requirements.txt
+```
 
-### 1. Install the local engine
+**2. The console**
 
-
-
-cd engine python -m venv .venv
-
-
-Windows:
-
-
-
-.venv\Scripts\python -m pip install -r requirements.txt
-
-
-Linux/macOS:
-
-
-
-.venv/bin/python -m pip install -r requirements.txt
-
-
-### 2. Install the console
-
-
-
-cd ../web npm install
-
+```bash
+cd ../web
+npm install
+```
 
 ## Environment configuration
 
-Each component has its own environment file.
+OwnRAG has no single root `.env`; each component reads its own file. `.env.example` at the
+repository root explains the layout, and the examples are the only env files in the repository.
 
-| File | Purpose |
-|---|---|
-| `engine/.env` | Local engine configuration |
-| `docker/.env` | Preserved backend configuration |
-| Console | No environment file required for local development |
-
-Copy `engine/.env.example` to `engine/.env` if custom settings are needed.
-
-
-
-cp engine/.env.example engine/.env
-
-
-On Windows, copy the file using PowerShell:
-
-
-
-Copy-Item engine/.env.example engine/.env
-
-
-### Important engine variables
-
-| Variable | Default | Purpose |
+| File | For | Copy from |
 |---|---|---|
-| `OWNRAG_HOST` | `127.0.0.1` | Bind address |
-| `OWNRAG_PORT` | `9380` | Engine port |
-| `OWNRAG_OWNER_EMAIL` | `owner@ownrag.local` | Initial owner account |
-| `OWNRAG_OWNER_PASSWORD` | Empty | Owner password |
-| `OWNRAG_ALLOW_SIGNUP` | `1` | Allow account registration |
-| `OWNRAG_MAX_UPLOAD_MB` | `256` | Maximum upload size |
-| `OWNRAG_CORS_ORIGINS` | Local origins | Allowed browser origins |
-| `OWNRAG_CHUNK_SIZE` | `512` | Default chunk size |
-| `OWNRAG_CHUNK_OVERLAP` | `80` | Default chunk overlap |
+| `engine/.env` | The local engine | `engine/.env.example` |
+| `docker/.env` | The preserved backend's compose stack | `docker/.env.single-bucket-example` |
+| *(none)* | The console needs no env file; the dev server proxies to `127.0.0.1:9380` | — |
 
-See [`engine/.env.example`](engine/.env.example) for all available variables.
+**Engine variables** — every one is optional. A complete list with comments is in
+[`engine/.env.example`](engine/.env.example).
 
-**Configure models through the console.** Open **Models**, add a provider URL
-and API key, then enable the required models. Changes take effect without
-restarting the engine.
+| Variable | Default | Meaning |
+|---|---|---|
+| `OWNRAG_HOST` / `OWNRAG_PORT` | `127.0.0.1` / `9380` | Bind address. The engine **refuses to start** on a non-loopback host unless `OWNRAG_OWNER_PASSWORD` is set. |
+| `OWNRAG_OWNER_EMAIL` / `OWNRAG_OWNER_PASSWORD` | `owner@ownrag.local` / empty | The owner account, created on first start. Empty password is allowed on loopback only (one-click sign-in). |
+| `OWNRAG_ALLOW_SIGNUP` | `1` | Set to `0` to close the deployment to new accounts. The owner account still works. A new account gets a workspace of its own and **owns** it, so its Models and Memory pages work from the first request; add it to yours with an invitation (Settings → Team) to make it a member of yours. |
+| `OWNRAG_TOKEN_TTL_DAYS` | `30` | Session lifetime. Each sign-in gets its own revocable token. |
+| `OWNRAG_MAX_LOGIN_FAILURES` | `5` | Failures per account/address pair per 15 minutes before a 15-minute lockout. |
+| `OWNRAG_INVITE_TTL_DAYS` | `7` | How long a copied invitation link stays valid. Links can be revoked, or replaced by resending. |
+| `OWNRAG_CONSOLE_URL` | the request's own Origin | Where a copied invitation link points. Set it when the console has a different public address. |
+| `OWNRAG_MAX_UPLOAD_MB` | `256` | Hard upload ceiling, enforced while the body is streamed. |
+| `OWNRAG_CORS_ORIGINS` | local origins | Comma-separated allowlist of browser origins. Set your https origin in production. |
+| `OWNRAG_CHUNK_SIZE` / `OWNRAG_CHUNK_OVERLAP` | `512` / `80` | Defaults for new knowledge bases. Changing them affects **new** ingestion only. |
+| `OWNRAG_LLM_BASE_URL` / `_API_KEY` / `_MODEL` | empty | Optional deployment-wide generation endpoint (any OpenAI-compatible `/chat/completions`). |
+| `OWNRAG_EMBEDDING_BASE_URL` / `_API_KEY` / `_MODEL` | empty | Optional embedding endpoint. Changing the encoder marks existing vectors stale; re-ingest to re-embed. |
+| `OWNRAG_LOCAL_EMBED_DIM` | `768` | Width of the built-in lexical vectors, used when no embedding endpoint is configured. |
+
+**The normal way to connect a model is the console, not the env file.** Add a provider on the Models
+screen (API base + key), enable the models you want, and the next question uses them — no restart.
+The variables above are the deployment-level fallback used only when no provider is enabled in the
+console. Provider keys added through the console are stored in the engine database.
 
 ## Running OwnRAG locally
 
-Use two terminals.
+Two terminals.
 
-### Terminal 1 — Engine
+**Terminal 1 — the engine**
 
-
-
+```bash
 cd engine
+.venv/Scripts/python serve.py      # Linux/macOS: .venv/bin/python serve.py
+# -> http://127.0.0.1:9380
+```
 
+**Terminal 2 — the console**
 
-Windows:
+```bash
+cd web
+npm run dev
+# -> http://localhost:5173
+```
 
+Open <http://localhost:5173>. On first start the engine creates the owner account
+(`owner@ownrag.local`) and, on loopback, signs it in with one click. To add another account, use
+the **Create account** link on the sign-in screen; passwords are stored as scrypt hashes.
 
+If the engine is not reachable, the console starts in **demo mode** with a bundled sample corpus:
+it says so in the top bar, and nothing in demo mode is presented as live data.
 
-.venv\Scripts\python serve.py
+**One-process deployment.** After `npm run build`, the engine serves the built console itself:
 
-
-Linux/macOS:
-
-
-
-.venv/bin/python serve.py
-
-
-The engine runs at `http://127.0.0.1:9380`.
-
-### Terminal 2 — Console
-
-
-
-cd web npm run dev
-
-
-Open `http://localhost:5173`.
-
-If the engine is unavailable, the console displays clearly labelled demo data.
-
-### Single-process deployment
-
-Build the console, then start the engine:
-
-
-
-cd web npm run build
-
-cd ../engine
-
-
-Windows:
-
-
-
-.venv\Scripts\python serve.py
-
-
-Linux/macOS:
-
-
-
-.venv/bin/python serve.py
-
-
-The engine serves the built console and API at `http://127.0.0.1:9380`.
+```bash
+cd web && npm run build      # emits web/dist
+cd ../engine && .venv/Scripts/python serve.py
+# -> http://127.0.0.1:9380 serves the console AND the API
+```
 
 ## Building the frontend
 
+```bash
+cd web
+npm install         # once
+npm run type-check  # tsc --noEmit
+npm run build       # emits web/dist
+npm run preview     # serve web/dist locally, without the engine
+```
 
-
-cd web npm install npm run type-check npm run build npm run preview
-
-
-The production build is generated in `web/dist`.
+`npm run build` is the only build step. The console has no separate lint or unit-test script.
 
 ## Running the preserved backend
 
-The upstream Go backend remains available as an alternative to the local engine.
+The upstream Go backend remains available and serves the same contract on `:9380` (admin API
+`:9381`), so the console works against either engine with no configuration change — its dev proxy
+points at `127.0.0.1:9380`.
 
+```bash
+bash build.sh --all       # native libraries + Go server
+cd docker
+docker compose -f docker-compose-base.yml up -d    # MySQL/PostgreSQL, MinIO, Elasticsearch, Kvrocks, NATS
+```
 
+Its runtime services and native artifacts (DeepDoc models, static libraries) come from
+`ragflow_deps/download_deps.py`, and the Go tests must be run through `build.sh` so the required CGO
+configuration and static libraries are wired up:
 
-bash build.sh --all
+```bash
+bash build.sh --test                   # unit tier
+bash build.sh --test-integration ./... # needs real services
+```
 
-
-Start the supporting services:
-
-
-
-cd docker docker compose -f docker-compose-base.yml up -d
-
-
-The backend requires Docker, supporting services, and downloaded native dependencies.
-
-Run tests through the build script from the repository root:
-
-
-
-bash build.sh --test bash build.sh --test-integration ./...
-
+This path was **not** exercised by the local-engine work described below — it needs Docker plus the
+downloaded native artifacts, neither of which is part of the engine-only setup.
 
 ## Production deployment on Ubuntu/Linux
 
-Run the engine as a dedicated service behind an HTTPS reverse proxy.
+The target: one host, the engine on loopback, TLS terminated by a reverse proxy. A fuller runbook
+with service definitions is in [`docs/GO-LIVE.md`](docs/GO-LIVE.md).
 
-Install dependencies:
+```bash
+sudo apt update && sudo apt install -y python3.11 python3.11-venv nginx
+sudo useradd --system --create-home --home-dir /opt/ownrag ownrag
 
-
-
-sudo apt update sudo apt install -y python3.11 python3.11-venv nginx sudo useradd --system --create-home --home-dir /opt/ownrag ownrag
-
-
-Clone the repository and set permissions:
-
-
-
-sudo git clone <your-ownrag-repository-url> /opt/ownrag sudo chown -R ownrag:ownrag /opt/ownrag
-
-
-Install engine dependencies:
-
-
-
+sudo git clone <your-ownrag-repository-url> /opt/ownrag
+sudo chown -R ownrag:ownrag /opt/ownrag
 cd /opt/ownrag/engine
 
-sudo -u ownrag python3.11 -m venv .venv sudo -u ownrag .venv/bin/python -m pip install -r requirements.txt
-
-
-Build the console:
-
-
+sudo -u ownrag python3.11 -m venv .venv
+sudo -u ownrag .venv/bin/pip install -r requirements.txt
 
 cd /opt/ownrag/web
+sudo -u ownrag npm ci
+sudo -u ownrag npm run build
+```
 
-sudo -u ownrag npm ci sudo -u ownrag npm run build
+Create `/opt/ownrag/engine/.env` with at least:
 
+```ini
+OWNRAG_HOST=127.0.0.1
+OWNRAG_OWNER_EMAIL=you@example.com
+OWNRAG_OWNER_PASSWORD=<a long passphrase — the engine refuses a public bind without it>
+OWNRAG_CORS_ORIGINS=https://rag.example.com
+OWNRAG_ALLOW_SIGNUP=0
+```
 
-Configure `/opt/ownrag/engine/.env`:
+Run it as a service:
 
+```ini
+# /etc/systemd/system/ownrag.service
+[Unit]
+Description=OwnRAG engine
+After=network.target
 
+[Service]
+Type=simple
+User=ownrag
+WorkingDirectory=/opt/ownrag/engine
+EnvironmentFile=/opt/ownrag/engine/.env
+ExecStart=/opt/ownrag/engine/.venv/bin/python serve.py
+Restart=always
+RestartSec=3
 
-OWNRAGHOST=127.0.0.1 OWNRAGOWNEREMAIL=you@example.com OWNRAGOWNERPASSWORD=<strong-passphrase> OWNRAGCORSORIGINS=https://rag.example.com OWNRAGALLOW_SIGNUP=0
+[Install]
+WantedBy=multi-user.target
+```
 
-
-Create `/etc/systemd/system/ownrag.service`:
-
-
-
-[Unit] Description=OwnRAG engine After=network.target
-
-[Service] Type=simple User=ownrag WorkingDirectory=/opt/ownrag/engine EnvironmentFile=/opt/ownrag/engine/.env ExecStart=/opt/ownrag/engine/.venv/bin/python serve.py Restart=always RestartSec=3
-
-[Install] WantedBy=multi-user.target
-
-
-Enable the service:
-
-
-
-sudo systemctl daemon-reload sudo systemctl enable --now ownrag sudo systemctl status ownrag
-
-
-See [`docs/GO-LIVE.md`](docs/GO-LIVE.md) for the complete deployment guide.
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now ownrag
+sudo systemctl status ownrag
+```
 
 ## Reverse proxy and HTTPS
 
-Keep the engine bound to loopback and expose it through Nginx or Caddy.
+The engine serves the built console itself, so the proxy has one upstream. Keep the engine on
+loopback and expose only the proxy.
 
-### Nginx
+**nginx**
 
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name rag.example.com;
 
+    ssl_certificate     /etc/letsencrypt/live/rag.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/rag.example.com/privkey.pem;
+    add_header Strict-Transport-Security "max-age=31536000" always;
 
-server { listen 443 ssl; http2 on; server_name rag.example.com;
+    client_max_body_size 300m;     # keep slightly above OWNRAG_MAX_UPLOAD_MB
 
-sslcertificate /etc/letsencrypt/live/rag.example.com/fullchain.pem; sslcertificate_key /etc/letsencrypt/live/rag.example.com/privkey.pem;
+    location / {
+        proxy_pass http://127.0.0.1:9380;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 300s;   # model calls are slow; the 60s default truncates answers
+    }
+}
 
-add_header Strict-Transport-Security "max-age=31536000" always;
+server {
+    listen 80;
+    server_name rag.example.com;
+    return 301 https://$host$request_uri;
+}
+```
 
-clientmaxbody_size 300m;
+Certificates: `sudo apt install certbot python3-certbot-nginx && sudo certbot --nginx -d rag.example.com`.
 
-location / { proxypass http://127.0.0.1:9380; proxyhttpversion 1.1; proxysetheader Host $host; proxysetheader X-Real-IP $remoteaddr; proxysetheader X-Forwarded-For $proxyaddxforwardedfor; proxyreadtimeout 300s; proxy_buffering off; } }
+**Caddy** — same shape, certificates automatic:
 
-server { listen 80; servername rag.example.com; return 301 https://$host$requesturi; }
+```caddyfile
+rag.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:9380
+    request_body {
+        max_size 300MB
+    }
+}
+```
 
-
-Obtain certificates:
-
-
-
-sudo apt install certbot python3-certbot-nginx sudo certbot --nginx -d rag.example.com
-
-
-### Caddy
-
-
-
-rag.example.com { encode zstd gzip reverseproxy 127.0.0.1:9380 requestbody { max_size 300MB } }
-
-
-Keep SSE response buffering disabled so streamed answers arrive progressively.
+Because the engine streams answers over SSE, the proxy must not buffer them: `proxy_buffering off;`
+in nginx, or `flush_interval -1` in Caddy if you see answers arrive all at once at the end.
 
 ## Health checks
 
-Check engine availability:
+The engine exposes a public liveness endpoint — deliberately unauthenticated, because a health check
+that needs a credential is disabled the first time it fails:
 
+```bash
+curl -s http://127.0.0.1:9380/health
+# {"code":0,"data":{"status":"ok","version":"0.1.0"},"message":"Success"}
+```
 
+Use it for a supervisor, a load balancer, or a monitor. With systemd, a readiness gate can be
+attached to the unit:
 
-curl -fsS http://127.0.0.1:9380/health
-
-
-A successful response includes `"status":"ok"`.
-
-Use this endpoint for monitoring and service checks.
+```ini
+ExecStartPost=/bin/sh -c 'until curl -fsS http://127.0.0.1:9380/health; do sleep 1; done'
+```
 
 ## Backups and restore
 
-Back up the SQLite database and uploaded files together.
+Two things have to be copied together to be restorable: the SQLite database (chunks, index,
+accounts, provider keys) and the document store under `engine/data/files/`. A snapshot of the
+database is taken through SQLite's own backup API, so it is consistent even while the engine is
+writing.
 
+```bash
+cd engine
+.venv/bin/python backup.py               # one snapshot into engine/backups/<timestamp>/
+.venv/bin/python backup.py --keep 14     # snapshot, then keep the newest 14
+.venv/bin/python backup.py --list        # what exists
+```
 
-
-cd engine .venv/bin/python backup.py .venv/bin/python backup.py --keep 14 .venv/bin/python backup.py --list
-
-
-To restore:
-
-1. Stop the engine.
-2. Restore `engine/data/ownrag.db` and `engine/data/files/` from the same backup.
-3. Restart the engine.
-
-**Never commit backups to Git.** They may contain documents and provider keys.
+The tool reports what it actually copied by reopening the copy and counting rows. **Restore:** stop
+the engine, replace `engine/data/ownrag.db` and `engine/data/files/` from a snapshot, start again.
+`engine/backups/` is git-ignored — never commit it, it contains your documents and provider keys.
 
 ## Tests
 
-Run the local engine tests from `engine/`:
+The local engine answers to tests rather than to claims. Each suite drives the real HTTP surface or
+the real database:
 
-
-
+```bash
 cd engine
+.venv/Scripts/python smoke_test.py           # 56 checks — parse → chunk → index → retrieve → cite
+.venv/Scripts/python check_console_path.py   # 34 checks — the console's own proxy path
+.venv/Scripts/python auth_test.py            # 32 checks — accounts, sessions, lockout, revocation
+.venv/Scripts/python connectors_test.py      # 21 checks — connector registry and sync guards
+.venv/Scripts/python providers_test.py       # provider CRUD and model discovery
+.venv/Scripts/python ingest_guard_test.py    # 12 checks — the ingestion guard states
+.venv/Scripts/python ocr_worker_test.py      # 27 checks — the OCR worker and numeric validation
+.venv/Scripts/python ocr_integration_test.py # 17 checks — OCR through the real ingest path
+```
 
-.venv/bin/python smoketest.py .venv/bin/python checkconsolepath.py .venv/bin/python authtest.py .venv/bin/python connectorstest.py .venv/bin/python providerstest.py .venv/bin/python ingestguardtest.py .venv/bin/python ocrworkertest.py .venv/bin/python ocrintegrationtest.py
+`check_console_path.py` drives the console through its dev server, so start `npm run dev` in another
+terminal before running it. `ui_test.py` drives the console in a real browser and needs Playwright
+(`pip install playwright && playwright install chromium`). Frontend gates:
 
-
-`check_console_path.py` requires the frontend development server.
-
-Browser UI tests require Playwright and Chromium:
-
-
-
-python -m pip install playwright python -m playwright install chromium
-
-
-Run frontend checks:
-
-
-
-cd web npm run type-check npm run build
-
+```bash
+cd web
+npm run type-check
+npm run build
+```
 
 ## Troubleshooting
 
-| Problem | Solution |
-|---|---|
-| Engine refuses public binding | Set a strong owner password or bind to loopback. |
-| Unsupported Node.js version | Install Node.js 20.19+ or 22.12+. |
-| Console shows demo data | Start the engine and check `/health`. |
-| Answers are extractive | Configure and enable a chat model. |
-| Upload exceeds the limit | Increase `OWNRAG_MAX_UPLOAD_MB`. |
-| Scanned PDF has no text | OCR currently requires Windows. |
-| Login is temporarily locked | Wait 15 minutes after repeated failed attempts. |
-| Port is already in use | Stop the conflicting process or change the port. |
-| Ingestion is slow | Large documents are processed synchronously, one at a time. |
+**The engine refuses to start with "refusing to bind"**
+`OWNRAG_HOST` is not loopback and `OWNRAG_OWNER_PASSWORD` is empty. That is deliberate. Set the
+password, or bind `127.0.0.1` and put a proxy in front.
+
+**`npm run dev` fails with an unsupported Node version**
+Vite 7 needs Node 20.19+ or 22.12+. Check `node -v`.
+
+**The console shows "Demo data" in the top bar**
+The engine is not reachable at `http://127.0.0.1:9380`. Start it, and check
+`curl -s http://127.0.0.1:9380/health`.
+
+**Answers say they were assembled from the retrieved passages**
+No chat model is configured, so the engine answers extractively. Add a provider on the Models screen
+(API base + key), enable a chat model, and ask again.
+
+**An upload is rejected as too large**
+`OWNRAG_MAX_UPLOAD_MB` (default 256) is enforced while streaming, and the console shows the limit
+from `GET /api/v1/system/config`. Raise the variable if you need larger files.
+
+**A scanned PDF ingests with no text, or fails**
+OCR uses the OCR engine built into Windows (`Windows.Media.Ocr`), so scanned pages are only read on
+Windows, and only when a page has no native text layer. On Linux and macOS a scanned document still
+ingests, but its image-only pages carry no text. `winsdk` is declared for Windows only.
+
+**Sign-in is locked after repeated failures**
+Five failed attempts in 15 minutes lock that account/address pair for 15 minutes
+(`OWNRAG_MAX_LOGIN_FAILURES`). The lock is per process.
+
+**Port 9380 or 5173 already in use**
+Stop the other process. On Windows: `netstat -ano | findstr :9380` then
+`powershell -Command "Stop-Process -Id <pid> -Force"`.
+
+**Everything is slower than expected on large corpora**
+Ingestion is single-process and synchronous; one large document at a time is the design. Add more
+corpora in separate knowledge bases rather than in parallel uploads.
 
 ## Attribution and licence
 
-OwnRAG is licensed under **Apache-2.0**, the same licence as the upstream project.
+OwnRAG is licensed **Apache-2.0**, the same licence as upstream. The original copyright, licence
+headers and third-party notices are retained in full.
 
-- [`LICENSE`](LICENSE) — Apache-2.0 licence.
-- [`NOTICE`](NOTICE) — Upstream attribution.
-- [`DERIVED-WORK.md`](DERIVED-WORK.md) — Summary of modifications.
-- `legacy/upstream-web/` — Preserved upstream code and licence notices.
+- [`LICENSE`](LICENSE) — Apache-2.0, unchanged.
+- [`NOTICE`](NOTICE) — upstream attribution, as Apache-2.0 §4(d) requires.
+- [`DERIVED-WORK.md`](DERIVED-WORK.md) — the precise list of modifications, per §4(b).
+- Files under `legacy/upstream-web/` are upstream code kept verbatim for compliance.
 
-OwnRAG is not affiliated with or endorsed by the upstream project's maintainers.
+OwnRAG is not affiliated with, endorsed by, or sponsored by the maintainers of the upstream
+the origin of the derived work.
 
 ## Status
 
-OwnRAG includes a redesigned console, a preserved Go backend, and a local
-engine for single-machine deployments.
-
-**It is a working project, not a finished product.**
-
-See [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) for implementation status,
-[`docs/SECURITY.md`](docs/SECURITY.md) for security considerations, and
-`engine/EXPERIMENTS.md`, `engine/OCR-FREEZE.md`, and
-`engine/FREEZE-LEDGER.md` for measurement records.
+A working console on a preserved backend, plus a local engine that makes the whole product runnable
+on one machine. It is not a finished product. [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) states
+what is implemented, what is wired to real endpoints, and what still depends on the upstream UI;
+[`docs/SECURITY.md`](docs/SECURITY.md) lists the security controls in place and the risks that
+remain; the engine's own measurement records are in
+[`engine/EXPERIMENTS.md`](engine/EXPERIMENTS.md),
+[`engine/OCR-FREEZE.md`](engine/OCR-FREEZE.md) and [`engine/FREEZE-LEDGER.md`](engine/FREEZE-LEDGER.md).
