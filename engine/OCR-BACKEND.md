@@ -92,8 +92,12 @@ cd engine
 .venv/Scripts/python.exe ocr_worker_test.py          # 26 checks, the worker's rules
 .venv/Scripts/python.exe ocr_integration_test.py     # 17 checks, end to end
 .venv/Scripts/python.exe ocr_bench_tesseract.py      # the frozen cases, scored for Tesseract
-.venv/Scripts/python.exe ocr_bench.py                # the frozen run itself (needs `pip install winsdk`)
+.venv/Scripts/python.exe ocr_bench.py                # the frozen run's own backend — see the note below
 ```
+
+`ocr_bench.py` still calls the Windows engine and `winsdk` is **not installed** any more, so that last line
+fails with `ModuleNotFoundError` by design: `pip install winsdk` first if you need to re-produce the
+2026-10-08 record on a Windows box. Nothing else in the engine imports it.
 
 The configuration experiments are kept beside them — `ocr_tess_prep_experiment.py` (page preparation),
 `ocr_tess_language_experiment.py` (model choice), `ocr_tess_model_experiment.py` (combined vs Arabic-only

@@ -18,9 +18,10 @@ Pillow>=10.0
 # BINARY is a separate, non-Python install — `winget install UB-Mannheim.TesseractOCR` on Windows —
 # plus the language data for the scripts you need (eng and ara), as engine/OCR-BACKEND.md describes.
 pytesseract>=0.3.10
-# The Windows engine (Windows.Media.Ocr via winsdk) is no longer used by the pipeline. It stays
-# listed-but-optional because the frozen benchmark, ocr_bench.py, is the record of what it measured
-# and cannot be re-run without it: `pip install winsdk`.
+# The Windows engine (Windows.Media.Ocr via winsdk) is gone from the pipeline AND from this environment:
+# `winsdk` is uninstalled, so no runtime path can fall back to the old engine. It is still imported by the
+# frozen benchmark, ocr_bench.py, which is the record of what that engine measured — that record cannot be
+# re-produced without it: `pip install winsdk` on a Windows box, then re-run ocr_bench.py.
 # winsdk>=1.0.0b10; sys_platform == "win32"
 
 # Not installed by default. ui_test.py drives a real browser through Playwright, so it is a test
