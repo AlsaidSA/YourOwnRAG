@@ -14,10 +14,14 @@ requests>=2.31         # bring-your-own embedding / chat endpoints
 # Pillow is imported by ownrag_engine/ocr.py at module level, so it is required on every platform:
 # the OCR worker loads the page image before handing it to an engine.
 Pillow>=10.0
-# OCR of scanned pages is implemented against the OCR engine built into Windows
-# (Windows.Media.Ocr). It is declared for Windows only, and it is reached only when a page has no
-# native text — a PDF with a text layer never needs it.
-winsdk>=1.0.0b10; sys_platform == "win32"
+# OCR of scanned pages runs on Tesseract (EXP-OCR-02). pytesseract is the binding; the tesseract
+# BINARY is a separate, non-Python install — `winget install UB-Mannheim.TesseractOCR` on Windows —
+# plus the language data for the scripts you need (eng and ara), as engine/OCR-BACKEND.md describes.
+pytesseract>=0.3.10
+# The Windows engine (Windows.Media.Ocr via winsdk) is no longer used by the pipeline. It stays
+# listed-but-optional because the frozen benchmark, ocr_bench.py, is the record of what it measured
+# and cannot be re-run without it: `pip install winsdk`.
+# winsdk>=1.0.0b10; sys_platform == "win32"
 
 # Not installed by default. ui_test.py drives a real browser through Playwright, so it is a test
 # dependency rather than a runtime one: `pip install playwright && playwright install chromium`.

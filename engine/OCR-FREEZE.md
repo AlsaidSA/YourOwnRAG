@@ -4,6 +4,11 @@ Verified against the live database and a restarted engine. 2026-10-08.
 OCR is an **independent, deterministic subsystem**: no LLM is involved anywhere in this path
 (Windows.Media.Ocr, per-region), so OCR quality is never a model-availability question.
 
+> **Backend superseded, 2026-10-10.** The worker now uses **Tesseract** instead of Windows.Media.Ocr
+> (EXP-OCR-02). Everything in this file was measured with the Windows engine and stands as that record;
+> the states, quarantine rules and provenance described below are unchanged by the swap. What the swap
+> measured, and where Tesseract is worse, is in `OCR-BACKEND.md`.
+
 ## States
 
 | State | Set when | Retrieval effect |
