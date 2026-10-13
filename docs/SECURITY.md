@@ -346,6 +346,10 @@ Three defects this exposed, all fixed:
   agent check required "token" in the answer; it now asserts the answer is drawn from the agent's documents
   and cites them.
 - **A minted API key recorded no owner** (from the previous change) — see that section.
+- **OCR indexes a figure it could not validate.** The worker rejects a malformed number, the rerender retry
+  reads a valid one, the token is recorded as fixed — and the chunk still stores and indexes the first-pass
+  text, so `4.812.75` is searchable and citable on a document that reports `DONE`. Evidence and the two
+  candidate fixes are in `engine/OCR-FREEZE.md`; the worker is frozen and was not changed.
 - **A controlled dialog that never closes takes a second confirmation for the next item — and a delete
   control is where stale UI state costs data, not a click.** Reported as *"why when i delete a specific model
   provider its also show me the deleting confimation popup again for the second provider?"*. Two defects: the

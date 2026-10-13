@@ -37,6 +37,8 @@ const RUN_TONE: Record<DocRunStatus, NonNullable<BadgeProps['tone']>> = {
   FAIL: 'danger',
   CANCEL: 'warn',
   NEEDS_OCR: 'warn',
+  NEEDS_OCR_NO_TEXT: 'warn',
+  NEEDS_OCR_QUARANTINE: 'warn',
   REJECTED: 'danger',
 };
 
@@ -45,6 +47,11 @@ const RUN_LABEL: Record<DocRunStatus, string> = {
   RUNNING: 'Running',
   UNSTART: 'Not started',
   NEEDS_OCR: 'Needs OCR',
+  // Nothing was indexed from that page: the deferred page produced no text at all.
+  NEEDS_OCR_NO_TEXT: 'OCR found no text',
+  // Indexed, except for the figures OCR could not validate — those chunks are held out of retrieval
+  // until someone checks them.
+  NEEDS_OCR_QUARANTINE: 'Needs review',
   REJECTED: 'Unreadable',
   FAIL: 'Failed',
   CANCEL: 'Cancelled',

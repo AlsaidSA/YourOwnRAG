@@ -63,6 +63,22 @@ First pass `DEFAULT_DPI=200`; a flagged page that yields nothing triggers a whol
 
 ## Known limitations
 
+- **A number the retry "fixes" is still indexed in its malformed form.** Found 2026-10-10 while checking the
+  live path end to end with a scanned page reading `Total amount due: 4.812.75 SAR`. The worker behaved
+  exactly as designed on the first pass — `validate_number('4.812.75')` rejects it ("2 decimal separators") —
+  and the rerender retry then re-read the region at 2x and returned `4812.75`, which is structurally valid,
+  so the token was recorded as **retried and accepted** (`retried: [{'was': '4.812.75', 'now': '4812.75',
+  'via': 'rerender'}]`). But the text the chunk keeps is the **first-pass** text: the stored chunk reads
+  `... Total amount due: 4.812.75 SAR ...` with `available_int=1` and an empty `quarantine`, and the
+  document reports `DONE`. The validated value lives only in `accepted_numbers`, which nothing indexes. So
+  the malformed token is retrievable and citable — the exact "silently indexing bad values" the quarantine
+  rule exists to prevent. The freeze's own live check (`bad.png` → `NEEDS_OCR_QUARANTINE`) exercised the
+  *no-text* branch of the retry, so this one was never covered: a fixture that passed for the wrong reason.
+  **Not fixed — the worker is frozen.** Two candidate fixes, smallest first: (a) re-validate the finished
+  chunk text and quarantine when any token in it still fails, which is one check at chunk-build time and
+  rewrites nothing; (b) when a token is retried and fixed, rewrite it in the chunk text so the index carries
+  the validated string. Either changes frozen behaviour and needs a new experiment ID.
+
 - **200→400 DPI recovery: UNPROVEN.** Measured over 5 sizes × 3 resolutions (150/200/400 dpi):
   where OCR fails here it fails by **legibility, not resolution** — below 9 pt the number is absent
   at every DPI, at 9 pt it is correct at all three. No size produced a wrong low-DPI reading that a

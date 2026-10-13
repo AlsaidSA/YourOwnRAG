@@ -10,9 +10,13 @@ export type DocRunStatus =
   | 'DONE'
   | 'FAIL'
   | 'CANCEL'
-  // Both come from the ingestion guard: a document with no native text is deferred to OCR,
-  // and one whose bytes are not text at all is refused. Neither is a generic failure.
+  // All three come from the ingestion guard and the OCR worker: a document with no native text is
+  // deferred to OCR, one whose bytes are not text at all is refused, one whose deferred page yielded
+  // nothing is reported as such, and one holding an unvalidated number is indexed but held back.
+  // None of them is a generic failure.
   | 'NEEDS_OCR'
+  | 'NEEDS_OCR_NO_TEXT'
+  | 'NEEDS_OCR_QUARANTINE'
   | 'REJECTED';
 export type ParseMethod = 'naive' | 'manual' | 'paper' | 'book' | 'laws' | 'presentation' | 'picture' | 'one' | 'qa' | 'table' | 'resume' | 'knowledge_graph' | 'email' | 'tag';
 
