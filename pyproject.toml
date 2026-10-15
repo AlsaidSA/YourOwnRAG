@@ -2,7 +2,6 @@
 name = "ownrag"
 version = "1.0.0-rc1"
 description = "OwnRAG — self-hosted retrieval-augmented generation. Your data. Your models. Your RAG."
-authors = [{ name = "Zhichang Yu", email = "yuzhichang@gmail.com" }]
 license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
